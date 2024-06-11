@@ -40,6 +40,7 @@ app.get("/csv/:document", authorize, async (req, res) => {
   if (!paths.includes(req.params.document)) {
     console.log(`document not described ${req.params.document}`);
     res.status(400).end("bad request");
+    return;
   }
 
   try {
@@ -48,6 +49,7 @@ app.get("/csv/:document", authorize, async (req, res) => {
   } catch (error) {
     console.log(`error getting session object: ${error} \n${error.stack}`);
     res.status(500).end("internal error!");
+    return;
   }
 
   try {
@@ -65,10 +67,12 @@ app.get("/csv/:document", authorize, async (req, res) => {
     );
     console.log("sending csv data...");
     res.status(200).send(csv).end();
+
     return;
   } catch (error) {
     console.log(`error getting csvs: ${error} \n${error.stack}`);
     res.status(500).end("internal error!");
+    return;
   }
 });
 

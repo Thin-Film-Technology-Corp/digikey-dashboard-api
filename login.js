@@ -4,6 +4,7 @@ config();
 
 async function getDigiKeyMicroStrategySession() {
   let browser;
+  console.log("starting browser...");
   try {
     browser = await puppeteer.launch({
       headless: true,
@@ -11,8 +12,11 @@ async function getDigiKeyMicroStrategySession() {
         "--disable-features=SameSiteByDefaultCookies",
         "--disable-features=CookiesWithoutSameSiteMustBeSecure",
         "--disable-site-isolation-trials",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
       ],
     });
+    console.log("browser started");
   } catch (error) {
     console.error("Error launching browser:", error);
     throw new Error("Failed to launch browser");

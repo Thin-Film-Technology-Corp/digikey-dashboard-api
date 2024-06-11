@@ -44,6 +44,7 @@ app.get("/csv/:document", authorize, async (req, res) => {
   }
 
   try {
+    console.log("retrieving session information");
     sessionObj = await getDigiKeyMicroStrategySession();
     console.log("retrieved session information...");
   } catch (error) {
@@ -77,4 +78,6 @@ app.get("/csv/:document", authorize, async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port);
+app.listen(port, () => {
+  console.log(`server is listening on port ${port}`);
+});

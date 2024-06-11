@@ -6,6 +6,8 @@ const { getDigiKeyMicroStrategySession, csvRequest } = require("./login");
 
 const app = express();
 
+config();
+
 app.use(express.json());
 
 app.use(helmet());
@@ -20,12 +22,11 @@ app.use(limiter);
 
 const authorize = (req, res, next) => {
   const authHeader = req.headers["authorization"];
+
   if (!authHeader) {
     return res.status(401).json({ message: "Authorization header is missing" });
   }
-
-  const token = authHeader.split(" ")[1];
-  if (token !== process.env.AUTH_TOKEN) {
+  if (authHeader !== process.env.AUTH_TOKEN) {
     return res.status(403).json({ message: "Invalid authorization token" });
   }
 

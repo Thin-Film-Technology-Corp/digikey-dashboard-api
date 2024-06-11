@@ -1,17 +1,38 @@
 const express = require("express");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const { config } = require("dotenv");
 const { getDigiKeyMicroStrategySession, csvRequest } = require("./login");
 
 const app = express();
+
 app.use(express.json());
 
-app.get("/*", (req, res, next) => {
-  // ! Security
-  // ! Throttling
-  next();
+app.use(helmet());
+
+const limiter = rateLimit({
+  windowMs: process.env.RATE_LIMIT_WINDOW_MS || 60000, // 1 minute default
+  max: process.env.RATE_LIMIT_MAX || 100, // limit each IP to 100 requests per windowMs
+  message: "Too many requests from this IP, please try again later.",
 });
 
-app.get("/csv/:document", async (req, res) => {
+app.use(limiter);
+
+const authorize = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader) {
+    return res.status(401).json({ message: "Authorization header is missing" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  if (token !== process.env.AUTH_TOKEN) {
+    return res.status(403).json({ message: "Invalid authorization token" });
+  }
+
+  next();
+};
+
+app.get("/csv/:document", authorize, async (req, res) => {
   let sessionObj;
   const paths = ["inventory", "sales", "fees", "billing"];
 
@@ -50,6 +71,4 @@ app.get("/csv/:document", async (req, res) => {
   }
 });
 
-app.listen(3000, () => {
-  console.log("server is running!");
-});
+app.listen();

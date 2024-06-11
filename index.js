@@ -71,4 +71,5 @@ app.get("/csv/:document", authorize, async (req, res) => {
   }
 });
 
-app.listen();
+const port = process.env.PORT || 3000;
+app.listen(port);

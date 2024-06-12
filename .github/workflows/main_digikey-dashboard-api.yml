@@ -55,10 +55,10 @@ jobs:
       - name: Install Node.js dependencies
         run: npm install
 
-      - name: Install Chrome for Puppeteer
+      - name: Run Puppeteer postinstall script
         run: |
           export PUPPETEER_CACHE_DIR=/tmp/puppeteer-cache
-          node --experimental-modules install-puppeteer.mjs
+          npm run postinstall
 
       - name: Build the project
         run: npm run build --if-present
@@ -124,10 +124,10 @@ jobs:
             libxrandr2 \
             libgtk-3-0
 
-      - name: Install Chrome for Puppeteer
+      - name: Run Puppeteer postinstall script on deployment server
         run: |
           export PUPPETEER_CACHE_DIR=/tmp/puppeteer-cache
-          node --experimental-modules install-puppeteer.mjs
+          npm run postinstall
 
       - name: Login to Azure
         uses: azure/login@v1

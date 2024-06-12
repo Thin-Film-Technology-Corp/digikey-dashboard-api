@@ -20,8 +20,9 @@ jobs:
 
       - name: Install Puppeteer dependencies
         run: |
+          mkdir ./puppeteer-deps
           ls
-          cd ./node_modules/puppeteer
+          cd ./puppeteer-deps
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \
@@ -94,7 +95,9 @@ jobs:
 
       - name: Install Puppeteer dependencies on deployment server
         run: |
-          cd ./node_modules/puppeteer
+          mkdir ./puppeteer-deps
+          ls
+          cd ./puppeteer-deps
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \

@@ -58,7 +58,7 @@ jobs:
       - name: Install Chrome for Puppeteer
         run: |
           export PUPPETEER_CACHE_DIR=/tmp/puppeteer-cache
-          npx puppeteer install
+          node --experimental-modules install-puppeteer.mjs
 
       - name: Build the project
         run: npm run build --if-present
@@ -127,7 +127,7 @@ jobs:
       - name: Install Chrome for Puppeteer
         run: |
           export PUPPETEER_CACHE_DIR=/tmp/puppeteer-cache
-          npx puppeteer browsers install chrome
+          node --experimental-modules install-puppeteer.mjs
 
       - name: Login to Azure
         uses: azure/login@v1

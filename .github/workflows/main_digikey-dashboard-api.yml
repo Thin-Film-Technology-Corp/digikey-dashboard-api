@@ -58,7 +58,6 @@ jobs:
       - name: npm install, build, and test
         run: |
           npm install
-          npx puppeteer install
           npm run build --if-present
 
       - name: Zip artifact for deployment
@@ -121,9 +120,6 @@ jobs:
             libcairo2 \
             libxrandr2 \
             libgtk-3-0
-
-      - name: Install Chrome for Puppeteer
-        run: npx puppeteer install
 
       - name: Login to Azure
         uses: azure/login@v1

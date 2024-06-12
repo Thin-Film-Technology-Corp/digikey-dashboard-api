@@ -8,6 +8,8 @@ export async function getDigiKeyMicroStrategySession() {
   try {
     browser = await launch({
       headless: true,
+      // ! If something breaks its gonna be this thing below
+      executablePath: process.env.CHROME_PATH,
       args: [
         "--disable-features=SameSiteByDefaultCookies",
         "--disable-features=CookiesWithoutSameSiteMustBeSecure",

@@ -126,7 +126,6 @@ jobs:
 
       - name: Run Puppeteer postinstall script on deployment server
         run: |
-          export PUPPETEER_CACHE_DIR=/tmp/puppeteer-cache
           npm run postinstall
 
       - name: Login to Azure

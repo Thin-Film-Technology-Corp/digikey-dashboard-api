@@ -20,7 +20,6 @@ jobs:
 
       - name: Install Puppeteer dependencies
         run: |
-          cd /home
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \
@@ -57,12 +56,11 @@ jobs:
             libcairo2 \
             libpangoft2-1.0-0 \
             libgl1
-          npx puppeteer browsers install chrome
 
       - name: npm install, build, and test
         run: |
           npm install
-          npm run build --if-present
+          npm run postinstall
 
       - name: Zip artifact for deployment
         run: zip release.zip ./* -r
@@ -93,7 +91,6 @@ jobs:
 
       - name: Install Puppeteer dependencies on deployment server
         run: |
-          cd /home
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \
@@ -130,7 +127,6 @@ jobs:
             libcairo2 \
             libpangoft2-1.0-0 \
             libgl1
-          npx puppeteer browsers install chrome
 
       - name: Login to Azure
         uses: azure/login@v1

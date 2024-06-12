@@ -127,7 +127,7 @@ jobs:
       - name: Install Chrome for Puppeteer
         run: |
           export PUPPETEER_CACHE_DIR=/tmp/puppeteer-cache
-          npx puppeteer install
+          npx puppeteer browsers install chrome
 
       - name: Login to Azure
         uses: azure/login@v1

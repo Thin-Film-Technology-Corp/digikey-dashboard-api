@@ -1,12 +1,12 @@
-const puppeteer = require("puppeteer");
-const { config } = require("dotenv");
+import { launch } from "puppeteer";
+import { config } from "dotenv";
 config();
 
-async function getDigiKeyMicroStrategySession() {
+export async function getDigiKeyMicroStrategySession() {
   let browser;
   console.log("starting browser...");
   try {
-    browser = await puppeteer.launch({
+    browser = await launch({
       headless: true,
       args: [
         "--disable-features=SameSiteByDefaultCookies",
@@ -133,7 +133,7 @@ async function getDigiKeyMicroStrategySession() {
   return result;
 }
 
-function getCredsFromSetHeaders(cookie) {
+export function getCredsFromSetHeaders(cookie) {
   let mstrSessionCORSRegex = /mstrSessionCORS=(\w+);/gm;
   let JSESSIONIDRegex = /JSESSIONID=(\w+);/gm;
   let mstrSessionCORS = cookie.match(mstrSessionCORSRegex);
@@ -142,7 +142,7 @@ function getCredsFromSetHeaders(cookie) {
   return `${mstrSessionCORS} ${JSESSIONID}`;
 }
 
-async function csvRequest(cookies, authToken, document) {
+export async function csvRequest(cookies, authToken, document) {
   // this creates the data in microstrategy
   let instanceURL;
   // this retrieves the data from microstrategy in the format we want
@@ -216,5 +216,3 @@ async function csvRequest(cookies, authToken, document) {
 // getDigiKeyMicroStrategySession().then((obj) => {
 //   console.log(obj);
 // });
-
-module.exports = { getDigiKeyMicroStrategySession, csvRequest };

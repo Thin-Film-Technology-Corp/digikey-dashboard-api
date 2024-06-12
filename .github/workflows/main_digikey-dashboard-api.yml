@@ -20,9 +20,7 @@ jobs:
 
       - name: Install Puppeteer dependencies
         run: |
-          mkdir ./puppeteer-deps
-          ls
-          cd ./puppeteer-deps
+          mkdir -p ./puppeteer-deps
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \
@@ -59,7 +57,7 @@ jobs:
             libcairo2 \
             libpangoft2-1.0-0 \
             libgl1
-          npx puppeteer browsers install chrome
+          PUPPETEER_CACHE_DIR=./puppeteer-deps npx puppeteer browsers install chrome
 
       - name: npm install, build, and test
         run: |
@@ -95,9 +93,7 @@ jobs:
 
       - name: Install Puppeteer dependencies on deployment server
         run: |
-          mkdir ./puppeteer-deps
-          ls
-          cd ./puppeteer-deps
+          mkdir -p ./puppeteer-deps
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \
@@ -134,7 +130,7 @@ jobs:
             libcairo2 \
             libpangoft2-1.0-0 \
             libgl1
-          npx puppeteer browsers install chrome
+          PUPPETEER_CACHE_DIR=./puppeteer-deps npx puppeteer browsers install chrome
 
       - name: Login to Azure
         uses: azure/login@v1

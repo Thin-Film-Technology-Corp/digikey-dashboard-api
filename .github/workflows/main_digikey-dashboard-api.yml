@@ -20,7 +20,7 @@ jobs:
 
       - name: Install Puppeteer dependencies
         run: |
-          cd /root
+          cd /home
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \
@@ -93,7 +93,7 @@ jobs:
 
       - name: Install Puppeteer dependencies on deployment server
         run: |
-          cd /root
+          cd /home
           sudo apt-get update
           sudo apt-get install -y \
             gconf-service \

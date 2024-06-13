@@ -190,7 +190,7 @@ export async function csvRequest(cookies, authToken, document) {
       {
         method: "POST",
         headers: {
-          "X-Mstr-Authtoken": `${authToken}`,
+          "X-Mstr-Authtoken": `${authToken}+1`,
           "X-MSTR-ProjectID": process.env.digikey_project_id,
           Prefer: "respond-async",
           Cookie: cookies,
@@ -199,9 +199,15 @@ export async function csvRequest(cookies, authToken, document) {
     );
 
     if (!response.ok) {
-      throw new Error(
-        `HTTP error! Status: ${response.status} \n ${await response.text()}`
-      );
+      if (response.status == 401) {
+        let expiredSession = new Error("Session expired!");
+        expiredSession.statusCode = 401;
+        throw expiredSession;
+      } else {
+        throw new Error(
+          `HTTP error! Status: ${response.status} \n ${await response.text()}`
+        );
+      }
     }
 
     const data = await response.arrayBuffer();
@@ -211,7 +217,7 @@ export async function csvRequest(cookies, authToken, document) {
 
     // fs.writeFileSync(`./digikey_${document}_report.csv`, buffer);
   } catch (error) {
-    console.error("Error:", error);
+    throw error;
   }
 }
 

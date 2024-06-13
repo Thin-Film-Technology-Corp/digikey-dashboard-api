@@ -50,6 +50,7 @@ app.get("/csv/:document", authorize, async (req, res) => {
     return;
   }
 
+  let retries = 0;
   const getCsvData = async () => {
     try {
       console.log("Retrieving session information...");
@@ -75,8 +76,8 @@ app.get("/csv/:document", authorize, async (req, res) => {
       res.status(200).send(csv).end();
     } catch (error) {
       console.log(`Error getting CSVs: ${error} \n${error.stack}`);
-      if (error.response && error.response.status === 401) {
-        // Assuming 401 is the session expiry status code
+      if (error.statusCode === 401 && retries < 2) {
+        retries++;
         console.log("Session expired. Fetching new session credentials...");
         sessionObj = await getSessionCredentials();
         return getCsvData(); // Retry with new session credentials

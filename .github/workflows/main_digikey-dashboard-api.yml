@@ -130,7 +130,6 @@ jobs:
 
       - name: npm install, build, and test
         run: |
-          cd /root/
           npx puppeteer browsers install chrome
 
       - name: Login to Azure

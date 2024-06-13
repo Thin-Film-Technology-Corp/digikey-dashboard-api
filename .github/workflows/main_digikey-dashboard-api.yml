@@ -128,8 +128,9 @@ jobs:
             libpangoft2-1.0-0 \
             libgl1
 
-      - name: npm install, build, and test
+      - name: install puppeteer browser
         run: |
+          cd ~
           npx puppeteer browsers install chrome
 
       - name: Login to Azure

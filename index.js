@@ -9,7 +9,6 @@ const app = express();
 config();
 
 app.use(json());
-
 app.use(helmet());
 
 const limiter = rateLimit({
@@ -33,51 +32,64 @@ const authorize = (req, res, next) => {
   next();
 };
 
+// In-memory storage for session credentials
+let sessionObj = null;
+
+const getSessionCredentials = async () => {
+  console.log("Fetching new session credentials...");
+  sessionObj = await getDigiKeyMicroStrategySession();
+  return sessionObj;
+};
+
 app.get("/csv/:document", authorize, async (req, res) => {
-  let sessionObj;
   const paths = ["inventory", "sales", "fees", "billing"];
 
   if (!paths.includes(req.params.document)) {
-    console.log(`document not described ${req.params.document}`);
-    res.status(400).end("bad request");
+    console.log(`Document not described ${req.params.document}`);
+    res.status(400).end("Bad request");
     return;
   }
 
-  try {
-    console.log("retrieving session information");
-    sessionObj = await getDigiKeyMicroStrategySession();
-    console.log("retrieved session information...");
-  } catch (error) {
-    console.log(`error getting session object: ${error} \n${error.stack}`);
-    res.status(500).end("internal error!");
-    return;
-  }
+  const getCsvData = async () => {
+    try {
+      console.log("Retrieving session information...");
+      if (!sessionObj) {
+        sessionObj = await getSessionCredentials();
+      }
+      console.log("Using session information...");
 
-  try {
-    let csvBuffer = await csvRequest(
-      sessionObj.sessionCookies,
-      sessionObj.authToken,
-      req.params.document
-    );
-    console.log("retrieved csv data...");
-    let csv = csvBuffer.toString("utf-8");
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="./digikey_${req.params.document}_report.csv"`
-    );
-    console.log("sending csv data...");
-    res.status(200).send(csv).end();
+      const csvBuffer = await csvRequest(
+        sessionObj.sessionCookies,
+        sessionObj.authToken,
+        req.params.document
+      );
+      console.log("Retrieved CSV data...");
 
-    return;
-  } catch (error) {
-    console.log(`error getting csvs: ${error} \n${error.stack}`);
-    res.status(500).end("internal error!");
-    return;
-  }
+      const csv = csvBuffer.toString("utf-8");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="digikey_${req.params.document}_report.csv"`
+      );
+      console.log("Sending CSV data...");
+      res.status(200).send(csv).end();
+    } catch (error) {
+      console.log(`Error getting CSVs: ${error} \n${error.stack}`);
+      if (error.response && error.response.status === 401) {
+        // Assuming 401 is the session expiry status code
+        console.log("Session expired. Fetching new session credentials...");
+        sessionObj = await getSessionCredentials();
+        return getCsvData(); // Retry with new session credentials
+      } else {
+        res.status(500).end("Internal error!");
+      }
+    }
+  };
+
+  getCsvData();
 });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`server is listening on port ${port}`);
+  console.log(`Server is listening on port ${port}`);
 });

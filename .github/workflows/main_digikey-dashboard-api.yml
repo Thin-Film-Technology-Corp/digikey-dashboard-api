@@ -18,45 +18,6 @@ jobs:
         with:
           node-version: "18.x"
 
-      - name: Install Puppeteer dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gconf-service \
-            libasound2 \
-            libatk1.0-0 \
-            libcups2 \
-            libdbus-1-3 \
-            libgdk-pixbuf2.0-0 \
-            libnspr4 \
-            libxss1 \
-            lsb-release \
-            xdg-utils \
-            wget \
-            libnss3 \
-            libx11-xcb1 \
-            libxcomposite1 \
-            libxcursor1 \
-            libxdamage1 \
-            libxi6 \
-            libxtst6 \
-            fonts-liberation \
-            libappindicator1 \
-            libappindicator3-1 \
-            libindicator7 \
-            libindicator3-7 \
-            libpango1.0-0 \
-            libpangocairo-1.0-0 \
-            libatk-bridge2.0-0 \
-            libcairo2 \
-            libxrandr2 \
-            libgtk-3-0 \
-            libgbm1 \
-            libpango-1.0-0 \
-            libcairo2 \
-            libpangoft2-1.0-0 \
-            libgl1
-
       - name: npm install, build, and test
         run: |
           npm install
@@ -91,8 +52,8 @@ jobs:
 
       - name: Install Puppeteer dependencies on deployment server
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+        sudo apt-get update
+        sudo apt-get install -y \
             gconf-service \
             libasound2 \
             libatk1.0-0 \
@@ -112,10 +73,8 @@ jobs:
             libxi6 \
             libxtst6 \
             fonts-liberation \
-            libappindicator1 \
-            libappindicator3-1 \
-            libindicator7 \
-            libindicator3-7 \
+            libayatana-appindicator1 \
+            libayatana-appindicator3-1 \
             libpango1.0-0 \
             libpangocairo-1.0-0 \
             libatk-bridge2.0-0 \
@@ -126,12 +85,9 @@ jobs:
             libpango-1.0-0 \
             libcairo2 \
             libpangoft2-1.0-0 \
-            libgl1
-
-      - name: install puppeteer browser
-        run: |
-          cd ~
-          npx puppeteer browsers install chrome
+            libgl1 \
+            libglib2.0-0 \
+            libdrm2
 
       - name: Login to Azure
         uses: azure/login@v1

@@ -190,7 +190,7 @@ export async function csvRequest(cookies, authToken, document) {
       {
         method: "POST",
         headers: {
-          "X-Mstr-Authtoken": `${authToken}+1`,
+          "X-Mstr-Authtoken": `${authToken}`,
           "X-MSTR-ProjectID": process.env.digikey_project_id,
           Prefer: "respond-async",
           Cookie: cookies,

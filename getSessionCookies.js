@@ -3,257 +3,413 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import { config } from "dotenv";
 config();
 
-async function getDigiKeyCookies(userName, pass) {
-  let encodedUserName = encodeURIComponent(userName);
-  let encodedPass = encodeURIComponent(pass).replace(/!/g, "%21");
+async function getDigiKeyCookies(userName, pass, retries = 3) {
+  try {
+    if (retries <= 0) {
+      throw new Error("Exceeded maximum retries to get DigiKey cookies.");
+    }
 
-  // Step 1: Initialize Authentication - Gives an auth.digikey url with:
-  // response_type, client_id, redirect_url, state, nonce, scope, vnd_pa_requested_resource, vnd_pi_application_name
-  console.log(`connecting to https://supplier.digikey.com/`);
-  const initializeAuth = await fetch("https://supplier.digikey.com/", {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-    },
-    redirect: "manual",
-  });
+    let encodedUserName = encodeURIComponent(userName);
+    let encodedPass = encodeURIComponent(pass).replace(/!/g, "%21");
 
-  let oauthURL = initializeAuth.headers.get("location");
-  let authCookies = initializeAuth.headers.getSetCookie();
+    // Step 1: Initialize Authentication
+    console.log(`connecting to https://supplier.digikey.com/`);
+    const initializeAuth = await fetch("https://supplier.digikey.com/", {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+      },
+      redirect: "manual",
+    });
 
-  // Step 2: redirect to a login page, from here we capture the cookies and the nonce for the login
-  // post url
-  console.log(`connecting to ${oauthURL}`);
-  let authLogin = await fetch(oauthURL, {
-    headers: {
-      cookie: authCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    let oauthURL = initializeAuth.headers.get("location");
+    let authCookies = initializeAuth.headers.getSetCookie();
+    if (!oauthURL) {
+      throw new Error("Failed to retrieve OAuth URL from initializeAuth");
+    }
 
-  let authPingURL = getNonceFromLoginPage(await authLogin.text());
-  let authLoginCookies = authLogin.headers.getSetCookie();
+    // Step 2: Redirect to a login page
+    console.log(`connecting to ${oauthURL}`);
+    let authLogin = await fetch(oauthURL, {
+      headers: {
+        cookie: authCookies.join("; "),
+      },
+      redirect: "manual",
+    });
 
-  // Step 3: use login page with nonce and new cookies from page to send credentials
-  // this gives us a supplier.digikey url that will be required to get to reports
-  console.log(`connecting to ${authPingURL}`);
-  let authPingResult = await fetch(authPingURL, {
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      "Access-Control-Expose-Headers": "Location",
-      cookie: authLoginCookies,
-    },
-    body: `pf.username=${encodedUserName}&pf.pass=${encodedPass}&pf.ok=clicked&pf.adapterId=authform`,
-    method: "POST",
-    redirect: "manual",
-  });
+    let authPingURL = getNonceFromLoginPage(await authLogin.text());
+    let authLoginCookies = authLogin.headers.getSetCookie();
+    if (!authPingURL) {
+      throw new Error("Failed to retrieve authPingURL from login page");
+    }
 
-  authCookies = [...authCookies, ...authPingResult.headers.getSetCookie()];
-  authLoginCookies = [
-    ...authLoginCookies,
-    ...authPingResult.headers.getSetCookie(),
-  ];
+    // Step 3: Use login page with nonce and new cookies to send credentials
+    console.log(`connecting to ${authPingURL}`);
+    let authPingResult = await fetch(authPingURL, {
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "Access-Control-Expose-Headers": "Location",
+        cookie: authLoginCookies.join("; "),
+      },
+      body: `pf.username=${encodedUserName}&pf.pass=${encodedPass}&pf.ok=clicked&pf.adapterId=authform`,
+      method: "POST",
+      redirect: "manual",
+    });
 
-  // Step 4: go to the supplier.digikey url that gets returned which includes the code and the state
-  // Only add in the supplier.digikey cookies up to this point.
-  // This will return the PA.Marketplace cookie which is one of the required cookies
-  console.log(`connecting to ${authPingResult.headers.get("location")}`);
-  let supplierAuth = await fetch(authPingResult.headers.get("location"), {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-      cookie: authCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    authCookies = [...authCookies, ...authPingResult.headers.getSetCookie()];
+    authLoginCookies = [
+      ...authLoginCookies,
+      ...authPingResult.headers.getSetCookie(),
+    ];
 
-  // reset auth cookies to the usable PA>Marketplace cookie
-  authCookies = supplierAuth.headers.getSetCookie();
+    // Step 4: Go to the supplier.digikey URL that gets returned
+    let supplierAuthURL = authPingResult.headers.get("location");
+    if (!supplierAuthURL) {
+      throw new Error("Failed to retrieve supplierAuthURL from authPingResult");
+    }
 
-  // Step 5: go to supplier.digikey.com with the new cookies to get a session ID
-  console.log(`connecting to ${supplierAuth.headers.get("location")}`);
-  let supplierSession = await fetch(supplierAuth.headers.get("location"), {
-    headers: {
-      cookie: authCookies.join("; "),
-      "Access-Control-Expose-Headers": "Location",
-    },
-    redirect: "manual",
-  });
+    console.log(`connecting to ${supplierAuthURL}`);
+    let supplierAuth = await fetch(supplierAuthURL, {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+        cookie: authCookies.join("; "),
+      },
+      redirect: "manual",
+    });
 
-  console.log(`connecting to https://supplier.digikey.com/login`);
-  let supplierLogin = await fetch("https://supplier.digikey.com/login", {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-      cookie: authCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    authCookies = supplierAuth.headers.getSetCookie();
 
-  // ! break this out
+    // Step 5: Go to supplier.digikey.com with the new cookies to get a session ID
+    let supplierSessionURL = supplierAuth.headers.get("location");
+    if (!supplierSessionURL) {
+      throw new Error(
+        "Failed to retrieve supplierSessionURL from supplierAuth"
+      );
+    }
 
-  // https://api.digikey.com/v1/oauth2/authorize?response_type=code&redirect_uri=https%3A%2F%2Fsupplier.digikey.com%2Flogin%2Fcallback%2F&client_id=68SL5OA39qIsWK1HDgKktoJcUEFAqMAf
-  console.log(`connecting to ${supplierLogin.headers.get("location")}`);
-  let apiOauth = await fetch(supplierLogin.headers.get("location"), {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-      cookie: authCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    console.log(`connecting to ${supplierSessionURL}`);
+    let supplierSession = await fetch(supplierSessionURL, {
+      headers: {
+        cookie: authCookies.join("; "),
+        "Access-Control-Expose-Headers": "Location",
+      },
+      redirect: "manual",
+    });
 
-  let apiCookies = apiOauth.headers.getSetCookie();
+    console.log(`connecting to https://supplier.digikey.com/login`);
+    let supplierLogin = await fetch("https://supplier.digikey.com/login", {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+        cookie: authCookies.join("; "),
+      },
+      redirect: "manual",
+    });
 
-  console.log(`connecting to ${apiOauth.headers.get("location")}`);
-  let apiRedirect = await fetch(apiOauth.headers.get("location"), {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-      cookie: authLoginCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    let supplierLoginURL = supplierLogin.headers.get("location");
+    if (!supplierLoginURL) {
+      throw new Error("Failed to retrieve supplierLoginURL from supplierLogin");
+    }
 
-  authLoginCookies = [
-    ...authLoginCookies,
-    ...apiRedirect.headers.getSetCookie(),
-  ];
+    console.log(`connecting to ${supplierLoginURL}`);
+    let apiOauth = await fetch(supplierLoginURL, {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+        cookie: authCookies.join("; "),
+      },
+      redirect: "manual",
+    });
 
-  console.log(`connecting to ${apiRedirect.headers.get("location")}`);
-  let apiCode = await fetch(apiRedirect.headers.get("location"), {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-      cookie: apiCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    let apiCookies = apiOauth.headers.getSetCookie();
+    let apiRedirectURL = apiOauth.headers.get("location");
+    if (!apiRedirectURL) {
+      throw new Error("Failed to retrieve apiRedirectURL from apiOauth");
+    }
 
-  console.log(`connecting to ${apiCode.headers.get("location")}`);
-  let supplierCallBack = await fetch(apiCode.headers.get("location"), {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-      cookie: authCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    console.log(`connecting to ${apiRedirectURL}`);
+    let apiRedirect = await fetch(apiRedirectURL, {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+        cookie: authLoginCookies.join("; "),
+      },
+      redirect: "manual",
+    });
 
-  authCookies = [...authCookies, ...supplierCallBack.headers.getSetCookie()];
-  console.log(`connecting to https://supplier.digikey.com/`);
-  let testSupplier = await fetch("https://supplier.digikey.com/", {
-    headers: {
-      cookie: authCookies.join("; "),
-      "Access-Control-Expose-Headers": "Location",
-    },
-    redirect: "manual",
-  });
-  return {
-    supplierCookies: authCookies,
-    apiCookies: apiCookies,
-    authorizationCookies: authLoginCookies,
-  };
-  return authCookies;
+    authLoginCookies = [
+      ...authLoginCookies,
+      ...apiRedirect.headers.getSetCookie(),
+    ];
+
+    let apiCodeURL = apiRedirect.headers.get("location");
+    if (!apiCodeURL) {
+      throw new Error("Failed to retrieve apiCodeURL from apiRedirect");
+    }
+
+    console.log(`connecting to ${apiCodeURL}`);
+    let apiCode = await fetch(apiCodeURL, {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+        cookie: apiCookies.join("; "),
+      },
+      redirect: "manual",
+    });
+
+    let supplierCallBackURL = apiCode.headers.get("location");
+    if (!supplierCallBackURL) {
+      throw new Error("Failed to retrieve supplierCallBackURL from apiCode");
+    }
+
+    console.log(`connecting to ${supplierCallBackURL}`);
+    let supplierCallBack = await fetch(supplierCallBackURL, {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+        cookie: authCookies.join("; "),
+      },
+      redirect: "manual",
+    });
+
+    authCookies = [...authCookies, ...supplierCallBack.headers.getSetCookie()];
+
+    console.log(`connecting to https://supplier.digikey.com/`);
+    let testSupplier = await fetch("https://supplier.digikey.com/", {
+      headers: {
+        cookie: authCookies.join("; "),
+        "Access-Control-Expose-Headers": "Location",
+      },
+      redirect: "manual",
+    });
+
+    return {
+      supplierCookies: authCookies,
+      apiCookies: apiCookies,
+      authorizationCookies: authLoginCookies,
+    };
+  } catch (error) {
+    console.error(`Error in getDigiKeyCookies: ${error.message}`);
+    if (retries > 1) {
+      console.log(`Retrying... (${retries - 1} retries left)`);
+      return await getDigiKeyCookies(userName, pass, retries - 1);
+    } else {
+      throw new Error("Failed to get DigiKey cookies after multiple retries.");
+    }
+  }
 }
 
 function getNonceFromLoginPage(pageHTML) {
-  let authPingCodeRegex = /\/as\/([^\/]+)\/resume\/as\/authorization\.ping/gm;
-  let authPingCodeMatch = authPingCodeRegex.exec(pageHTML);
+  try {
+    let authPingCodeRegex = /\/as\/([^\/]+)\/resume\/as\/authorization\.ping/gm;
+    let authPingCodeMatch = authPingCodeRegex.exec(pageHTML);
 
-  if (!authPingCodeMatch) {
-    throw new Error("authPingCode not found in HTML");
+    if (!authPingCodeMatch) {
+      throw new Error("authPingCode not found in HTML");
+    }
+
+    let authPingCode = authPingCodeMatch[1];
+    return `https://auth.digikey.com/as/${authPingCode}/resume/as/authorization.ping`;
+  } catch (error) {
+    console.error(`Error in getNonceFromLoginPage: ${error.message}`);
+    return null; // or you could return an appropriate fallback value
   }
-
-  let authPingCode = authPingCodeMatch[1];
-  return `https://auth.digikey.com/as/${authPingCode}/resume/as/authorization.ping`;
 }
 
-async function getTokenForMicroStrategy(supplierCookies, authCookies) {
-  console.log(`connecting to https://supplier.digikey.com/reporting`);
-  let reportingSID = await fetch("https://supplier.digikey.com/reporting", {
-    headers: {
-      cookie: supplierCookies.join("; "),
-      "Access-Control-Expose-Headers": "Location",
-    },
-    redirect: "manual",
-  });
+async function getTokenForMicroStrategy(
+  supplierCookies,
+  authCookies,
+  retries = 3
+) {
+  try {
+    if (retries <= 0) {
+      throw new Error("Exceeded maximum retries to get token.");
+    }
 
-  // Replace the session id
-  supplierCookies = supplierCookies.filter((a) => !a.includes("connect.sid"));
-  supplierCookies = [
-    ...supplierCookies,
-    ...reportingSID.headers.getSetCookie(),
-  ];
-
-  console.log(`connecting to https://supplier.digikey.com/reporting/login`);
-  let reportingOAuth = await fetch(
-    "https://supplier.digikey.com/reporting/login",
-    {
+    console.log(`connecting to https://supplier.digikey.com/reporting`);
+    let reportingSID = await fetch("https://supplier.digikey.com/reporting", {
       headers: {
         cookie: supplierCookies.join("; "),
         "Access-Control-Expose-Headers": "Location",
       },
       redirect: "manual",
+    });
+
+    supplierCookies = supplierCookies.filter((a) => !a.includes("connect.sid"));
+    supplierCookies = [
+      ...supplierCookies,
+      ...reportingSID.headers.getSetCookie(),
+    ];
+
+    console.log(`connecting to https://supplier.digikey.com/reporting/login`);
+    let reportingOAuth = await fetch(
+      "https://supplier.digikey.com/reporting/login",
+      {
+        headers: {
+          cookie: supplierCookies.join("; "),
+          "Access-Control-Expose-Headers": "Location",
+        },
+        redirect: "manual",
+      }
+    );
+
+    const reportingOAuthLocation = reportingOAuth.headers.get("location");
+    if (!reportingOAuthLocation) {
+      console.error("No location header in reportingOAuth response");
+      return await getTokenForMicroStrategy(
+        supplierCookies,
+        authCookies,
+        retries - 1
+      );
     }
-  );
 
-  console.log(`connecting to ${reportingOAuth.headers.get("location")}`);
-  let authCodeChallenge = await fetch(reportingOAuth.headers.get("location"), {
-    headers: {
-      "Access-Control-Expose-Headers": "Location",
-      cookie: authCookies.join("; "),
-    },
-    redirect: "manual",
-  });
+    console.log(`connecting to ${reportingOAuthLocation}`);
+    let authCodeChallenge = await fetch(reportingOAuthLocation, {
+      headers: {
+        "Access-Control-Expose-Headers": "Location",
+        cookie: authCookies.join("; "),
+      },
+      redirect: "manual",
+    });
 
-  console.log(`connecting to ${authCodeChallenge.headers.get("location")}`);
-  let supplierTokenRequest = await fetch(
-    authCodeChallenge.headers.get("location"),
-    {
+    const authCodeChallengeLocation = authCodeChallenge.headers.get("location");
+    if (!authCodeChallengeLocation) {
+      console.error("No location header in authCodeChallenge response");
+      return await getTokenForMicroStrategy(
+        supplierCookies,
+        authCookies,
+        retries - 1
+      );
+    }
+
+    console.log(`connecting to ${authCodeChallengeLocation}`);
+    let supplierTokenRequest = await fetch(authCodeChallengeLocation, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
         cookie: supplierCookies.join("; "),
       },
       redirect: "manual",
+    });
+
+    if (supplierTokenRequest.status === 302) {
+      let token = supplierTokenRequest.headers.get("location").split("=")[1];
+      console.log(`Token extracted: ${token}`);
+      if (!token) {
+        console.warn("Token not found, retrying...");
+        return await getTokenForMicroStrategy(
+          supplierCookies,
+          authCookies,
+          retries - 1
+        );
+      }
+
+      if (token.includes("&")) {
+        token = token.split("&")[0];
+      }
+
+      return token;
+    } else {
+      console.error(
+        `Error getting token for session: ${supplierTokenRequest.status}`
+      );
+      return await getTokenForMicroStrategy(
+        supplierCookies,
+        authCookies,
+        retries - 1
+      );
     }
-  );
-
-  let token = supplierTokenRequest.headers.get("location").split("=")[1];
-
-  if (token.includes("&")) {
-    token = token.split("&")[0];
+  } catch (error) {
+    console.error(`Error in getTokenForMicroStrategy: ${error.message}`);
+    if (retries > 1) {
+      console.log(`Retrying... (${retries - 1} retries left)`);
+      return await getTokenForMicroStrategy(
+        supplierCookies,
+        authCookies,
+        retries - 1
+      );
+    } else {
+      throw new Error("Failed to get token after multiple retries.");
+    }
   }
-  return token;
 }
 
-async function getMicroStrategySession(token) {
-  let sessionCookies = await fetch(
-    "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/auth/delegate",
-    {
-      headers: {
-        "Access-Control-Expose-Headers": "Location",
-        "content-type": "application/json",
-      },
-      redirect: "manual",
-      body: `{"loginMode":-1,"identityToken":"${token}"}`,
-      method: "POST",
+async function getMicroStrategySession(token, retries = 5) {
+  try {
+    if (retries <= 0) {
+      throw new Error("Exceeded maximum retries to get MicroStrategy session.");
     }
-  );
 
-  let authToken = sessionCookies.headers.get("x-mstr-authtoken");
+    let sessionCookies = await fetch(
+      "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/auth/delegate",
+      {
+        headers: {
+          "Access-Control-Expose-Headers": "Location",
+          "content-type": "application/json",
+        },
+        redirect: "manual",
+        body: `{"loginMode":-1,"identityToken":"${token}"}`,
+        method: "POST",
+      }
+    );
 
-  return {
-    cookies: sessionCookies.headers.getSetCookie().join("; "),
-    authToken: authToken,
-  };
+    let authToken = sessionCookies.headers.get("x-mstr-authtoken");
+    let retObj = {
+      cookies: sessionCookies.headers.getSetCookie().join("; "),
+      authToken: authToken,
+    };
+
+    if (!retObj.authToken) {
+      console.warn("Auth token missing, retrying...");
+      return await getMicroStrategySession(token, retries - 1);
+    }
+
+    return retObj;
+  } catch (error) {
+    console.error(`Error in getMicroStrategySession: ${error.message}`);
+    if (retries > 1) {
+      console.log(`Retrying... (${retries - 1} retries left)`);
+      return await getMicroStrategySession(token, retries - 1);
+    } else {
+      throw new Error(
+        "Failed to get MicroStrategy session after multiple retries."
+      );
+    }
+  }
 }
 
-export async function microstrategySessionCredentials(userName, pass) {
-  const digiKeyCookies = await getDigiKeyCookies(userName, pass);
-  const token = await getTokenForMicroStrategy(
-    digiKeyCookies.supplierCookies,
-    digiKeyCookies.authorizationCookies
-  );
-  const microStrategyCredentials = await getMicroStrategySession(token);
+export async function microstrategySessionCredentials(
+  userName,
+  pass,
+  retries = 5
+) {
+  try {
+    if (retries <= 0) {
+      throw new Error("Exceeded maximum retries to get session credentials.");
+    }
 
-  return {
-    sessionCookies: microStrategyCredentials.cookies,
-    authToken: microStrategyCredentials.authToken,
-  };
+    const digiKeyCookies = await getDigiKeyCookies(userName, pass);
+    const token = await getTokenForMicroStrategy(
+      digiKeyCookies.supplierCookies,
+      digiKeyCookies.authorizationCookies
+    );
+    const microStrategyCredentials = await getMicroStrategySession(token);
+
+    let retObj = {
+      sessionCookies: microStrategyCredentials.cookies,
+      authToken: microStrategyCredentials.authToken,
+    };
+
+    if (!retObj.authToken || !retObj.sessionCookies) {
+      console.warn("Auth token or session cookies missing, retrying...");
+      return await microstrategySessionCredentials(userName, pass, retries - 1);
+    }
+
+    return retObj;
+  } catch (error) {
+    console.error(`Error in microstrategySessionCredentials: ${error.message}`);
+    if (retries > 1) {
+      console.log(`Retrying... (${retries - 1} retries left)`);
+      return await microstrategySessionCredentials(userName, pass, retries - 1);
+    } else {
+      throw new Error(
+        "Failed to get session credentials after multiple retries."
+      );
+    }
+  }
 }
 
 // microstrategySessionCredentials(

@@ -36,14 +36,34 @@ const authorize = (req, res, next) => {
 // In-memory storage for session credentials
 let sessionObj = null;
 
-const getSessionCredentials = async () => {
-  console.log("Fetching new session credentials...");
-  sessionObj = await microstrategySessionCredentials(
-    process.env.digikey_username,
-    process.env.digikey_password
-  );
-  console.log(`\nsession obj: ${JSON.stringify(sessionObj)}\n `);
-  return sessionObj;
+const getSessionCredentials = async (retries = 3) => {
+  try {
+    if (retries <= 0) {
+      throw new Error("Exceeded maximum retries to fetch session credentials.");
+    }
+
+    console.log("Fetching new session credentials...");
+    const sessionObj = await microstrategySessionCredentials(
+      process.env.digikey_username,
+      process.env.digikey_password
+    );
+
+    if (!sessionObj) {
+      throw new Error("Failed to fetch session credentials.");
+    }
+
+    return sessionObj;
+  } catch (error) {
+    console.error(`Error in getSessionCredentials: ${error.message}`);
+    if (retries > 1) {
+      console.log(`Retrying... (${retries - 1} retries left)`);
+      return await getSessionCredentials(retries - 1);
+    } else {
+      throw new Error(
+        "Failed to fetch session credentials after multiple retries."
+      );
+    }
+  }
 };
 
 app.get("/csv/:document", authorize, async (req, res) => {
@@ -56,6 +76,8 @@ app.get("/csv/:document", authorize, async (req, res) => {
   }
 
   let retries = 0;
+  const maxRetries = 2;
+
   const getCsvData = async () => {
     try {
       console.log("Retrieving session information...");
@@ -80,14 +102,14 @@ app.get("/csv/:document", authorize, async (req, res) => {
       console.log("Sending CSV data...");
       res.status(200).send(csv).end();
     } catch (error) {
-      console.log(`Error getting CSVs: ${error} \n${error.stack}`);
-      if (error.statusCode === 401 && retries < 2) {
+      console.log(`Error getting CSVs: ${error.message} \n${error.stack}`);
+      if (error.statusCode === 401 && retries < maxRetries) {
         retries++;
         console.log("Session expired. Fetching new session credentials...");
         sessionObj = await getSessionCredentials();
         return getCsvData(); // Retry with new session credentials
-      } else if (error.statusCode === 401 && retries < 2) {
-        console.log(`Recieved request while authorizing!`);
+      } else if (error.statusCode === 401 && retries >= maxRetries) {
+        console.log("Received request while authorizing!");
         return res
           .status(503)
           .end("Please wait for authorization before attempting again");

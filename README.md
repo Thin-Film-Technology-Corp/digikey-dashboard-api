@@ -6,11 +6,11 @@ The DigiKey Dashboard API project is a Node.js application designed to interact 
 
 #### Key Components
 
-1. [**index.js**](index.js-express-router.md): The main entry point for the Express server.
-2. [**login.js**](login.js.md): Handles session management and CSV data retrieval using Puppeteer.
-3. [**package.json**](package.json.md): Defines project metadata, scripts, and dependencies.
-4. [**GitHub Actions Workflow (yml file)**](yml-file-and-docker-configs.md): Automates the build and deployment process to Azure Web App.
-5. [**Puppeteer Configuration File**](puppeteerrc.cjs-puppeteer-configs.md): Customizes the cache directory for Puppeteer.
+1. [**index.js**](docs/index.js-express-router.md): The main entry point for the Express server.
+2. [**login.js**](docs/login.js.md): Handles session management and CSV data retrieval using Puppeteer.
+3. [**package.json**](docs/package.json.md): Defines project metadata, scripts, and dependencies.
+4. [**GitHub Actions Workflow (yml file)**](docs/yml-file-and-docker-configs.md): Automates the build and deployment process to Azure Web App.
+5. [**Puppeteer Configuration File**](broken-reference): Customizes the cache directory for Puppeteer.
 
 ### Detailed Breakdown
 

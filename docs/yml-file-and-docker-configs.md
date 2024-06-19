@@ -64,17 +64,7 @@ jobs:
     ```
 
     * Uses the `actions/setup-node@v3` action to set up Node.js version 18.x.
-3.  **Install Puppeteer Dependencies**
-
-    ```yaml
-    - name: Install Puppeteer dependencies on build container
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ...
-    ```
-
-    * Installs the necessary system dependencies for Puppeteer.
-4.  **Install Node.js Dependencies and Build**
+3.  **Install Node.js Dependencies and Build**
 
     ```yaml
     - name: npm install, build, and test
@@ -85,7 +75,7 @@ jobs:
 
     * Runs `npm install` to install project dependencies.
     * Runs `npm run postinstall` to execute any post-install scripts defined in `package.json`.
-5.  **Zip Artifact for Deployment**
+4.  **Zip Artifact for Deployment**
 
     ```yaml
     - name: Zip artifact for deployment
@@ -93,7 +83,7 @@ jobs:
     ```
 
     * Zips the build files into an artifact named `release.zip`.
-6.  **Upload Artifact**
+5.  **Upload Artifact**
 
     ```yaml
     - name: Upload artifact for deployment job
@@ -143,17 +133,7 @@ deploy:
     ```
 
     * Unzips the downloaded artifact.
-3.  **Install Puppeteer Dependencies**
-
-    ```yaml
-    - name: Install Puppeteer dependencies on deployment server
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ...
-    ```
-
-    * Installs the necessary system dependencies for Puppeteer on the deployment server.
-4.  **Login to Azure**
+3.  **Login to Azure**
 
     ```yaml
     - name: Login to Azure
@@ -165,7 +145,7 @@ deploy:
     ```
 
     * Uses the `azure/login@v1` action to log into Azure using provided credentials.
-5.  **Deploy to Azure Web App**
+4.  **Deploy to Azure Web App**
 
     ```yaml
     - name: "Deploy to Azure Web App"
@@ -178,44 +158,3 @@ deploy:
     ```
 
     * Uses the `azure/webapps-deploy@v2` action to deploy the application to the Azure Web App named `digikey-dashboard-api`.
-6.  **Install dependencies in Azure container**
-
-    * You will need to install Chrome browser dependencies manually in the newly created container, use the following command
-
-    ```sh
-    apt-get install -y \
-                  gconf-service \
-                  libasound2 \
-                  libatk1.0-0 \
-                  libcups2 \
-                  libdbus-1-3 \
-                  libgdk-pixbuf2.0-0 \
-                  libnspr4 \
-                  libxss1 \
-                  lsb-release \
-                  xdg-utils \
-                  wget \
-                  libnss3 \
-                  libx11-xcb1 \
-                  libxcomposite1 \
-                  libxcursor1 \
-                  libxdamage1 \
-                  libxi6 \
-                  libxtst6 \
-                  fonts-liberation \
-                  libayatana-appindicator1 \
-                  libayatana-appindicator3-1 \
-                  libpango1.0-0 \
-                  libpangocairo-1.0-0 \
-                  libatk-bridge2.0-0 \
-                  libcairo2 \
-                  libxrandr2 \
-                  libgtk-3-0 \
-                  libgbm1 \
-                  libpango-1.0-0 \
-                  libcairo2 \
-                  libpangoft2-1.0-0 \
-                  libgl1 \
-                  libglib2.0-0 \
-                  libdrm2
-    ```

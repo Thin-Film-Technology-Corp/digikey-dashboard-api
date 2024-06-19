@@ -2,7 +2,8 @@ import express, { json } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { config } from "dotenv";
-import { getDigiKeyMicroStrategySession, csvRequest } from "./login.js";
+import { csvRequest } from "./login.js";
+import { microstrategySessionCredentials } from "./getSessionCookies.js";
 
 const app = express();
 
@@ -34,13 +35,14 @@ const authorize = (req, res, next) => {
 
 // In-memory storage for session credentials
 let sessionObj = null;
-let isAuthorizing = false;
 
 const getSessionCredentials = async () => {
-  isAuthorizing = true;
   console.log("Fetching new session credentials...");
-  sessionObj = await getDigiKeyMicroStrategySession();
-  isAuthorizing = false;
+  sessionObj = await microstrategySessionCredentials(
+    process.env.digikey_username,
+    process.env.digikey_password
+  );
+  console.log(`\nsession obj: ${JSON.stringify(sessionObj)}\n `);
   return sessionObj;
 };
 
@@ -57,13 +59,8 @@ app.get("/csv/:document", authorize, async (req, res) => {
   const getCsvData = async () => {
     try {
       console.log("Retrieving session information...");
-      if (!sessionObj && !isAuthorizing) {
+      if (!sessionObj) {
         sessionObj = await getSessionCredentials();
-      } else if (!sessionObj && isAuthorizing) {
-        console.log(`Recieved request while authorizing!`);
-        return res
-          .status(503)
-          .end("Please wait for authorization before attempting again");
       }
       console.log("Using session information...");
 
@@ -84,12 +81,12 @@ app.get("/csv/:document", authorize, async (req, res) => {
       res.status(200).send(csv).end();
     } catch (error) {
       console.log(`Error getting CSVs: ${error} \n${error.stack}`);
-      if (error.statusCode === 401 && retries < 2 && !isAuthorizing) {
+      if (error.statusCode === 401 && retries < 2) {
         retries++;
         console.log("Session expired. Fetching new session credentials...");
         sessionObj = await getSessionCredentials();
         return getCsvData(); // Retry with new session credentials
-      } else if (error.statusCode === 401 && retries < 2 && isAuthorizing) {
+      } else if (error.statusCode === 401 && retries < 2) {
         console.log(`Recieved request while authorizing!`);
         return res
           .status(503)

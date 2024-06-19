@@ -1,139 +1,139 @@
-import { launch } from "puppeteer";
 import { config } from "dotenv";
 config();
 
-export async function getDigiKeyMicroStrategySession() {
-  let browser;
-  console.log("starting browser...");
-  try {
-    browser = await launch({
-      headless: true,
-      // ! If something breaks its gonna be this thing below
-      executablePath: process.env.CHROME_PATH,
-      args: [
-        "--disable-features=SameSiteByDefaultCookies",
-        "--disable-features=CookiesWithoutSameSiteMustBeSecure",
-        "--disable-site-isolation-trials",
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-      ],
-    });
-    console.log("browser started");
-  } catch (error) {
-    console.error("Error launching browser:", error);
-    throw new Error("Failed to launch browser");
-  }
+// ? Deprecated, uses puppeteer browser
+// export async function getDigiKeyMicroStrategySession() {
+//   let browser;
+//   console.log("starting browser...");
+//   try {
+//     browser = await launch({
+//       headless: true,
+//       // ! If something breaks its gonna be this thing below
+//       executablePath: process.env.CHROME_PATH,
+//       args: [
+//         "--disable-features=SameSiteByDefaultCookies",
+//         "--disable-features=CookiesWithoutSameSiteMustBeSecure",
+//         "--disable-site-isolation-trials",
+//         "--no-sandbox",
+//         "--disable-setuid-sandbox",
+//       ],
+//     });
+//     console.log("browser started");
+//   } catch (error) {
+//     console.error("Error launching browser:", error);
+//     throw new Error("Failed to launch browser");
+//   }
 
-  let page;
-  try {
-    page = await browser.newPage();
-  } catch (error) {
-    console.error("Error opening new page:", error);
-    await browser.close();
-    throw new Error("Failed to open new page");
-  }
+//   let page;
+//   try {
+//     page = await browser.newPage();
+//   } catch (error) {
+//     console.error("Error opening new page:", error);
+//     await browser.close();
+//     throw new Error("Failed to open new page");
+//   }
 
-  // Create a promise that resolves with the obj when the specific response is received
-  const responsePromise = new Promise((resolve, reject) => {
-    page.on("response", async (response) => {
-      try {
-        const url = response.url();
-        const headers = response.headers();
-        if (
-          url ===
-            "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/auth/delegate" &&
-          headers["x-mstr-authtoken"]
-        ) {
-          let sessionCookies = getCredsFromSetHeaders(headers["set-cookie"]);
-          let authToken = headers["x-mstr-authtoken"];
-          let obj = { sessionCookies: sessionCookies, authToken: authToken };
-          resolve(obj);
-        }
-      } catch (error) {
-        console.error("Error in response event handler:", error);
-        reject(error);
-      }
-    });
-  });
+//   // Create a promise that resolves with the obj when the specific response is received
+//   const responsePromise = new Promise((resolve, reject) => {
+//     page.on("response", async (response) => {
+//       try {
+//         const url = response.url();
+//         const headers = response.headers();
+//         if (
+//           url ===
+//             "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/auth/delegate" &&
+//           headers["x-mstr-authtoken"]
+//         ) {
+//           let sessionCookies = getCredsFromSetHeaders(headers["set-cookie"]);
+//           let authToken = headers["x-mstr-authtoken"];
+//           let obj = { sessionCookies: sessionCookies, authToken: authToken };
+//           resolve(obj);
+//         }
+//       } catch (error) {
+//         console.error("Error in response event handler:", error);
+//         reject(error);
+//       }
+//     });
+//   });
 
-  try {
-    await page.goto("https://supplier.digikey.com/");
-  } catch (error) {
-    console.error("Error navigating to DigiKey:", error);
-    await browser.close();
-    throw new Error("Failed to navigate to DigiKey");
-  }
+//   try {
+//     await page.goto("https://supplier.digikey.com/");
+//   } catch (error) {
+//     console.error("Error navigating to DigiKey:", error);
+//     await browser.close();
+//     throw new Error("Failed to navigate to DigiKey");
+//   }
 
-  try {
-    await page.type("#username", process.env.digikey_username);
-  } catch (error) {
-    console.error("Error typing username:", error);
-    await browser.close();
-    throw new Error("Failed to type username");
-  }
+//   try {
+//     await page.type("#username", process.env.digikey_username);
+//   } catch (error) {
+//     console.error("Error typing username:", error);
+//     await browser.close();
+//     throw new Error("Failed to type username");
+//   }
 
-  try {
-    await page.type("#password", process.env.digikey_password);
-  } catch (error) {
-    console.error("Error typing password:", error);
-    await browser.close();
-    throw new Error("Failed to type password");
-  }
+//   try {
+//     await page.type("#password", process.env.digikey_password);
+//   } catch (error) {
+//     console.error("Error typing password:", error);
+//     await browser.close();
+//     throw new Error("Failed to type password");
+//   }
 
-  try {
-    await page.click("#signOnButton");
-  } catch (error) {
-    console.error("Error clicking sign-on button:", error);
-    await browser.close();
-    throw new Error("Failed to click sign-on button");
-  }
+//   try {
+//     await page.click("#signOnButton");
+//   } catch (error) {
+//     console.error("Error clicking sign-on button:", error);
+//     await browser.close();
+//     throw new Error("Failed to click sign-on button");
+//   }
 
-  try {
-    await page.waitForNavigation({ waitUntil: "networkidle0" });
-  } catch (error) {
-    console.error("Error waiting for navigation:", error);
-    await browser.close();
-    throw new Error("Failed to wait for navigation");
-  }
+//   try {
+//     await page.waitForNavigation({ waitUntil: "networkidle0" });
+//   } catch (error) {
+//     console.error("Error waiting for navigation:", error);
+//     await browser.close();
+//     throw new Error("Failed to wait for navigation");
+//   }
 
-  try {
-    await page.click('button.map-button[data-testid="Open-2"]');
-  } catch (error) {
-    console.error("Error clicking map button:", error);
-    await browser.close();
-    throw new Error("Failed to click map button");
-  }
+//   try {
+//     await page.click('button.map-button[data-testid="Open-2"]');
+//   } catch (error) {
+//     console.error("Error clicking map button:", error);
+//     await browser.close();
+//     throw new Error("Failed to click map button");
+//   }
 
-  try {
-    await page.waitForResponse(
-      (response) =>
-        response.url() ===
-        "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/sessions"
-    );
-  } catch (error) {
-    console.error("Error waiting for response:", error);
-    await browser.close();
-    throw new Error("Failed to wait for response");
-  }
+//   try {
+//     await page.waitForResponse(
+//       (response) =>
+//         response.url() ===
+//         "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/sessions"
+//     );
+//   } catch (error) {
+//     console.error("Error waiting for response:", error);
+//     await browser.close();
+//     throw new Error("Failed to wait for response");
+//   }
 
-  let result;
-  try {
-    result = await responsePromise;
-  } catch (error) {
-    console.error("Error resolving response promise:", error);
-    await browser.close();
-    throw new Error("Failed to resolve response promise");
-  }
+//   let result;
+//   try {
+//     result = await responsePromise;
+//   } catch (error) {
+//     console.error("Error resolving response promise:", error);
+//     await browser.close();
+//     throw new Error("Failed to resolve response promise");
+//   }
 
-  try {
-    await browser.close();
-  } catch (error) {
-    console.error("Error closing browser:", error);
-    throw new Error("Failed to close browser");
-  }
+//   try {
+//     await browser.close();
+//   } catch (error) {
+//     console.error("Error closing browser:", error);
+//     throw new Error("Failed to close browser");
+//   }
 
-  return result;
-}
+//   return result;
+// }
 
 export function getCredsFromSetHeaders(cookie) {
   let mstrSessionCORSRegex = /mstrSessionCORS=(\w+);/gm;

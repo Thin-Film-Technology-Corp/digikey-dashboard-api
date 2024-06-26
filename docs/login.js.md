@@ -6,173 +6,34 @@ description: >-
 
 # login.js
 
-### Overview
+### Dependencies
 
-This file contains the following main functionalities:
+* **dotenv**: A zero-dependency module that loads environment variables from a `.env` file into `process.env`.
 
-* Launching a Puppeteer browser to initiate a session with DigiKey.
-* Extracting session credentials from the DigiKey website.
-* Retrieving CSV data based on document type.
-* Parsing cookies for session management.
+### Configuration
 
-### Code Breakdown
-
-#### Import Statements
+The configuration is set up using `dotenv` to load environment variables.
 
 ```javascript
-import { launch } from "puppeteer";
 import { config } from "dotenv";
 config();
 ```
 
-* `launch` from `puppeteer`: Used to launch a headless browser for web scraping.
-* `config` from `dotenv`: Loads environment variables from a `.env` file.
+### Functions
 
-#### getDigiKeyMicroStrategySession Function
+#### `getCredsFromSetHeaders`
 
-```javascript
-export async function getDigiKeyMicroStrategySession() {
-  let browser;
-  console.log("starting browser...");
-  try {
-    browser = await launch({
-      headless: true,
-      executablePath: process.env.CHROME_PATH,
-      args: [
-        "--disable-features=SameSiteByDefaultCookies",
-        "--disable-features=CookiesWithoutSameSiteMustBeSecure",
-        "--disable-site-isolation-trials",
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-      ],
-    });
-    console.log("browser started");
-  } catch (error) {
-    console.error("Error launching browser:", error);
-    throw new Error("Failed to launch browser");
-  }
+Extracts session credentials from a cookie string.
 
-  let page;
-  try {
-    page = await browser.newPage();
-  } catch (error) {
-    console.error("Error opening new page:", error);
-    await browser.close();
-    throw new Error("Failed to open new page");
-  }
+**Parameters**
 
-  const responsePromise = new Promise((resolve, reject) => {
-    page.on("response", async (response) => {
-      try {
-        const url = response.url();
-        const headers = response.headers();
-        if (
-          url ===
-            "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/auth/delegate" &&
-          headers["x-mstr-authtoken"]
-        ) {
-          let sessionCookies = getCredsFromSetHeaders(headers["set-cookie"]);
-          let authToken = headers["x-mstr-authtoken"];
-          let obj = { sessionCookies: sessionCookies, authToken: authToken };
-          resolve(obj);
-        }
-      } catch (error) {
-        console.error("Error in response event handler:", error);
-        reject(error);
-      }
-    });
-  });
+* `cookie` (string): The cookie string containing session information.
 
-  try {
-    await page.goto("https://supplier.digikey.com/");
-  } catch (error) {
-    console.error("Error navigating to DigiKey:", error);
-    await browser.close();
-    throw new Error("Failed to navigate to DigiKey");
-  }
+**Returns**
 
-  try {
-    await page.type("#username", process.env.digikey_username);
-  } catch (error) {
-    console.error("Error typing username:", error);
-    await browser.close();
-    throw new Error("Failed to type username");
-  }
+* `string`: A string containing extracted session credentials.
 
-  try {
-    await page.type("#password", process.env.digikey_password);
-  } catch (error) {
-    console.error("Error typing password:", error);
-    await browser.close();
-    throw new Error("Failed to type password");
-  }
-
-  try {
-    await page.click("#signOnButton");
-  } catch (error) {
-    console.error("Error clicking sign-on button:", error);
-    await browser.close();
-    throw new Error("Failed to click sign-on button");
-  }
-
-  try {
-    await page.waitForNavigation({ waitUntil: "networkidle0" });
-  } catch (error) {
-    console.error("Error waiting for navigation:", error);
-    await browser.close();
-    throw new Error("Failed to wait for navigation");
-  }
-
-  try {
-    await page.click('button.map-button[data-testid="Open-2"]');
-  } catch (error) {
-    console.error("Error clicking map button:", error);
-    await browser.close();
-    throw new Error("Failed to click map button");
-  }
-
-  try {
-    await page.waitForResponse(
-      (response) =>
-        response.url() ===
-        "https://digikey.cloud.microstrategy.com/MicroStrategyLibrarySRPortal/api/sessions"
-    );
-  } catch (error) {
-    console.error("Error waiting for response:", error);
-    await browser.close();
-    throw new Error("Failed to wait for response");
-  }
-
-  let result;
-  try {
-    result = await responsePromise;
-  } catch (error) {
-    console.error("Error resolving response promise:", error);
-    await browser.close();
-    throw new Error("Failed to resolve response promise");
-  }
-
-  try {
-    await browser.close();
-  } catch (error) {
-    console.error("Error closing browser:", error);
-    throw new Error("Failed to close browser");
-  }
-
-  return result;
-}
-```
-
-* `getDigiKeyMicroStrategySession()`: Launches a headless browser, logs in to the DigiKey supplier portal, and extracts session credentials.
-  * Launches a headless browser with specified arguments.
-  * Opens a new page and navigates to the DigiKey supplier portal.
-  * Types in the username and password from environment variables.
-  * Clicks the sign-on button and waits for navigation to complete.
-  * Clicks a button to trigger a specific session response.
-  * Waits for a response containing the session credentials and resolves them.
-  * Closes the browser and returns the session credentials.
-
-#### getCredsFromSetHeaders Function
+**Example**
 
 ```javascript
 export function getCredsFromSetHeaders(cookie) {
@@ -185,11 +46,22 @@ export function getCredsFromSetHeaders(cookie) {
 }
 ```
 
-* `getCredsFromSetHeaders(cookie)`: Parses session cookies from response headers.
-  * Uses regular expressions to extract `mstrSessionCORS` and `JSESSIONID` cookies.
-  * Returns a concatenated string of the extracted cookies.
+#### `csvRequest`
 
-#### csvRequest Function
+Makes a request to the MicroStrategy API to create and fetch CSV data for the specified document type.
+
+**Parameters**
+
+* `cookies` (string): The session cookies used for authentication.
+* `authToken` (string): The authorization token.
+* `document` (string): The type of document to fetch (e.g., `inventory`, `sales`, `fees`, `billing`).
+
+**Returns**
+
+* `Buffer`: A buffer containing the CSV data.
+* `false`: If the document type is invalid.
+
+**Example**
 
 ```javascript
 export async function csvRequest(cookies, authToken, document) {
@@ -264,26 +136,31 @@ export async function csvRequest(cookies, authToken, document) {
 }
 ```
 
-* `csvRequest(cookies, authToken, document)`: Fetches CSV data from MicroStrategy based on document type.
-  * Determines the appropriate `instanceURL` and `instanceDataURL` based on the document type.
-  * Creates a report instance in MicroStrategy and retrieves its data.
-  * Fetches the CSV data for the specified document.
-  * Returns the CSV data as a buffer.
+### Usage
 
-### Environment Variables
+1. **Loading Environment Variables**: Ensure that you have a `.env` file with the required environment variables such as `digikey_project_id`.
+2. **Extracting Credentials**: Use the `getCredsFromSetHeaders` function to extract session credentials from the cookie string.
+3. **Making CSV Requests**: Use the `csvRequest` function to fetch CSV data for the desired document type. This function handles the creation and retrieval of the report from the MicroStrategy API.
 
-* `CHROME_PATH`: Path to the Chrome executable for Puppeteer.
-* `digikey_username`: Username for DigiKey login.
-* `digikey_password`: Password for DigiKey login.
-* `digikey_project_id`: Project ID for DigiKey MicroStrategy API.
+#### Example
 
-### External Dependencies
+```javascript
+import { getCredsFromSetHeaders, csvRequest } from './path/to/module';
 
-* **puppeteer**: Provides a high-level API to control Chrome or Chromium.
-* **dotenv**: Loads environment variables from a `.env` file.
+const cookies = "mstrSessionCORS=abcd1234; JSESSIONID=efgh5678;";
+const authToken = "your_auth_token";
+const documentType = "inventory";
 
-### Functions
+const sessionCreds = getCredsFromSetHeaders(cookies);
+csvRequest(sessionCreds, authToken, documentType)
+  .then((csvData) => {
+    // Handle the CSV data
+    console.log("CSV Data:", csvData.toString('utf-8'));
+  })
+  .catch((error) => {
+    // Handle errors
+    console.error("Error fetching CSV data:", error);
+  });
+```
 
-* **getDigiKeyMicroStrategySession**: Launches a headless browser, logs in to the DigiKey supplier portal, and extracts session credentials.
-* **getCredsFromSetHeaders**: Parses session cookies from response headers.
-* **csvRequest**: Fetches CSV data from MicroStrategy based on document type.
+This documentation provides a comprehensive overview of the modules, their functions, and how to use them within your API. For any further queries, refer to the source code or contact the development team.

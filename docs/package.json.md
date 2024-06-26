@@ -38,14 +38,12 @@ The `package.json` file contains the following key sections:
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon index.js",
     "start": "node index.js",
-    "postinstall": "npx puppeteer browsers install chrome"
   },
 ```
 
 * `test`: A placeholder for running tests (currently not specified).
 * `dev`: Starts the server using `nodemon`, which automatically restarts the server on file changes.
 * `start`: Starts the server using `node`.
-* `postinstall`: Runs after dependencies are installed, ensuring that Puppeteer downloads the Chrome browser.
 
 ### Author and License
 
@@ -66,8 +64,7 @@ The `package.json` file contains the following key sections:
     "express-rate-limit": "^7.3.1",
     "helmet": "^7.1.0",
     "nodemon": "^3.1.3",
-    "path": "^0.12.7",
-    "puppeteer": "^22.10.0"
+    "path": "^0.12.7"
   }
 }
 ```
@@ -94,12 +91,4 @@ To start the application normally:
 
 ```sh
 npm start
-```
-
-#### Post-installation Script
-
-After installing dependencies, ensure Puppeteer downloads the required Chrome browser:
-
-```sh
-npm install
 ```

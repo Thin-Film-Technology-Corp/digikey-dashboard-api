@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 config();
-
+import { MongoClient } from "mongodb";
+const client = new MongoClient(process.env.part_parametric_connection_string);
 // ? Deprecated, uses puppeteer browser
 // export async function getDigiKeyMicroStrategySession() {
 //   let browser;
@@ -221,6 +222,51 @@ export async function csvRequest(cookies, authToken, document) {
   }
 }
 
+// ! might be relevant for syncing
+async function appendSeriesToSalesData(buffer) {
+  let csvData = await buffer.toString("utf16le");
+  let dataArray = await csvData.split("\n");
+  const db = client.db("part-parametrics");
+  const partCollection = db.collection("part_parametrics");
+  dataArray[0].slice(0, dataArray.length - 2);
+  console.log(dataArray[0].split(","));
+  dataArray[0] += `,"Series"`;
+  console.log(dataArray.length);
+
+  for (let i = 1; i < dataArray.length; i++) {
+    console.log(i);
+    let lineArray = dataArray[i].split(`","`);
+    let partNumber = lineArray[12];
+
+    // remove the \r
+    lineArray[lineArray.length - 1] = lineArray[lineArray.length - 1].slice(
+      0,
+      lineArray[lineArray.length - 1].length - 2
+    );
+
+    if (partNumber) {
+      let mongoPartData = await partCollection.findOne({
+        part_number: partNumber,
+      });
+
+      if (mongoPartData) {
+        lineArray.push(`${mongoPartData.series}"`);
+      } else {
+        console.log(
+          `there was an issue fetching product data for ${partNumber}`
+        );
+        lineArray.push(`,`);
+      }
+    }
+    dataArray[i] = lineArray.join(`","`);
+  }
+  // const returnBuffer = Buffer.from(dataArray.join("\n"));
+  const enc = new TextEncoder();
+  const returnBuffer = enc.encode(dataArray.join("\n"));
+
+  return Buffer.from(returnBuffer);
+  // return buffer;
+}
 // getDigiKeyMicroStrategySession().then((obj) => {
 //   console.log(obj);
 // });

@@ -168,15 +168,6 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
 
     authCookies = [...authCookies, ...supplierCallBack.headers.getSetCookie()];
 
-    console.log(`connecting to https://supplier.digikey.com/`);
-    let testSupplier = await fetch("https://supplier.digikey.com/", {
-      headers: {
-        cookie: authCookies.join("; "),
-        "Access-Control-Expose-Headers": "Location",
-      },
-      redirect: "manual",
-    });
-
     return {
       supplierCookies: authCookies,
       apiCookies: apiCookies,
@@ -213,7 +204,9 @@ function getNonceFromLoginPage(pageHTML) {
 async function getTokenForMicroStrategy(
   supplierCookies,
   authCookies,
-  retries = 3
+  userName,
+  pass,
+  retries
 ) {
   try {
     if (retries <= 0) {
@@ -285,8 +278,12 @@ async function getTokenForMicroStrategy(
       redirect: "manual",
     });
 
-    if (supplierTokenRequest.status === 302) {
+    if (
+      supplierTokenRequest.status === 302 &&
+      supplierTokenRequest.headers.get("location") != "/reporting/fail"
+    ) {
       let token = supplierTokenRequest.headers.get("location").split("=")[1];
+      console.log(supplierTokenRequest.headers.get("location"));
       console.log(`Token extracted: ${token}`);
       if (!token) {
         console.warn("Token not found, retrying...");
@@ -304,11 +301,12 @@ async function getTokenForMicroStrategy(
       return token;
     } else {
       console.error(
-        `Error getting token for session: ${supplierTokenRequest.status}`
+        `Error getting token for session: ${supplierTokenRequest.status} ${supplierTokenRequest.statusText}`
       );
+      const cookieRepeat = await getDigiKeyCookies(userName, pass);
       return await getTokenForMicroStrategy(
-        supplierCookies,
-        authCookies,
+        cookieRepeat.supplierCookies,
+        cookieRepeat.authorizationCookies,
         retries - 1
       );
     }
@@ -384,7 +382,9 @@ export async function microstrategySessionCredentials(
     const digiKeyCookies = await getDigiKeyCookies(userName, pass);
     const token = await getTokenForMicroStrategy(
       digiKeyCookies.supplierCookies,
-      digiKeyCookies.authorizationCookies
+      digiKeyCookies.authorizationCookies,
+      userName,
+      pass
     );
     const microStrategyCredentials = await getMicroStrategySession(token);
 

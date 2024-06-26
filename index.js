@@ -4,6 +4,11 @@ import rateLimit from "express-rate-limit";
 import { config } from "dotenv";
 import { csvRequest } from "./login.js";
 import { microstrategySessionCredentials } from "./getSessionCookies.js";
+import {
+  syncMongoSalesData,
+  retrieveMongoSalesData,
+  convertMongoDataToCSV,
+} from "./mongoOperation.js";
 
 const app = express();
 
@@ -66,8 +71,27 @@ const getSessionCredentials = async (retries = 3) => {
   }
 };
 
+app.get("/csv/sales", authorize, async (req, res) => {
+  let csvData;
+  try {
+    csvData = await convertMongoDataToCSV(await retrieveMongoSalesData());
+  } catch (error) {
+    console.error(
+      `error getting csv for sales from mongo: ${error} \n ${error.stack}`
+    );
+    return res.status(500).end();
+  }
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="digikey_sales_report.csv"`
+  );
+  res.status(200).send(csvData).end();
+});
+
 app.get("/csv/:document", authorize, async (req, res) => {
-  const paths = ["inventory", "sales", "fees", "billing"];
+  const paths = ["inventory", "fees", "billing"];
 
   if (!paths.includes(req.params.document)) {
     console.log(`Document not described ${req.params.document}`);

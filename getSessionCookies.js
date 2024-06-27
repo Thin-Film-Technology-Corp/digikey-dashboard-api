@@ -397,7 +397,7 @@ export async function microstrategySessionCredentials(
       console.warn("Auth token or session cookies missing, retrying...");
       return await microstrategySessionCredentials(userName, pass, retries - 1);
     }
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
+    // process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
 
     return retObj;
   } catch (error) {

@@ -200,7 +200,7 @@ export async function retrieveMongoSalesData(
   customer,
   partNumber
 ) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
+  // process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
   const client = new MongoClient(process.env.part_parametric_connection_string);
 
   await client.connect();

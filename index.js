@@ -74,7 +74,10 @@ const getSessionCredentials = async (retries = 3) => {
 app.get("/csv/sales", authorize, async (req, res) => {
   let csvData;
   try {
-    csvData = await convertMongoDataToCSV(await retrieveMongoSalesData());
+    console.log("getting sales data from mongo...");
+    let salesData = await retrieveMongoSalesData();
+    console.log("converting sales data to csv...");
+    csvData = await convertMongoDataToCSV(salesData);
   } catch (error) {
     console.error(
       `error getting csv for sales from mongo: ${error} \n ${error.stack}`
@@ -87,6 +90,7 @@ app.get("/csv/sales", authorize, async (req, res) => {
     "Content-Disposition",
     `attachment; filename="digikey_sales_report.csv"`
   );
+  console.log("sending csv...");
   res.status(200).send(csvData).end();
 });
 

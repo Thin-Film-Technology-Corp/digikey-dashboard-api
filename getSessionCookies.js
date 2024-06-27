@@ -1,7 +1,7 @@
 // ! unfortunately the root CA refuses to authorize from DigiKey so this is the only work around I can currently use
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import { config } from "dotenv";
 config();
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 async function getDigiKeyCookies(userName, pass, retries = 3) {
   try {
@@ -397,6 +397,7 @@ export async function microstrategySessionCredentials(
       console.warn("Auth token or session cookies missing, retrying...");
       return await microstrategySessionCredentials(userName, pass, retries - 1);
     }
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
 
     return retObj;
   } catch (error) {

@@ -1,5 +1,4 @@
 import { config } from "dotenv";
-import { readFileSync, writeFileSync } from "fs";
 import { MongoClient } from "mongodb";
 import { csvRequest } from "./login.js";
 import { microstrategySessionCredentials } from "./getSessionCookies.js";
@@ -9,14 +8,7 @@ config();
 
 export async function syncMongoSalesData() {
   // connect to mongo collection
-  const client = new MongoClient(
-    process.env.part_parametric_connection_string,
-    {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      ssl: true,
-    }
-  );
+  const client = new MongoClient(process.env.part_parametric_connection_string);
 
   await client.connect();
 
@@ -208,14 +200,8 @@ export async function retrieveMongoSalesData(
   customer,
   partNumber
 ) {
-  const client = new MongoClient(
-    process.env.part_parametric_connection_string,
-    {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      ssl: true,
-    }
-  );
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
+  const client = new MongoClient(process.env.part_parametric_connection_string);
 
   await client.connect();
 
@@ -235,7 +221,6 @@ export async function retrieveMongoSalesData(
     "Nov",
     "Dec",
   ];
-  const date = new Date();
   month = months[month - 1] || null;
   year = year || null;
   customer = customer?.toUpperCase() || null;

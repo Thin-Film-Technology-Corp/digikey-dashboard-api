@@ -9,7 +9,17 @@ config();
 
 export async function syncMongoSalesData() {
   // connect to mongo collection
-  const client = new MongoClient(process.env.part_parametric_connection_string);
+  const client = new MongoClient(
+    process.env.part_parametric_connection_string,
+    {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      ssl: true,
+    }
+  );
+
+  await client.connect();
+
   const db = client.db("part-parametrics");
   const salesCollection = db.collection("sales_data");
 
@@ -50,6 +60,7 @@ export async function syncMongoSalesData() {
 
   salesCollection.aggregate(linkPartDataPipeline);
 
+  await client.close();
   return salesJSON;
 }
 
@@ -197,7 +208,17 @@ export async function retrieveMongoSalesData(
   customer,
   partNumber
 ) {
-  const client = new MongoClient(process.env.part_parametric_connection_string);
+  const client = new MongoClient(
+    process.env.part_parametric_connection_string,
+    {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      ssl: true,
+    }
+  );
+
+  await client.connect();
+
   const db = client.db("part-parametrics");
   const salesCollection = db.collection("sales_data");
   const months = [
@@ -249,6 +270,8 @@ export async function retrieveMongoSalesData(
     result.ProductGroup = getProductGroup(result);
     return result;
   });
+
+  await client.close();
 
   return results;
 }

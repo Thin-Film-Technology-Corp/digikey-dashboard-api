@@ -38,6 +38,13 @@ export async function syncMongoSalesData() {
       },
     },
     {
+      $match: {
+        part_details: {
+          $exists: false,
+        },
+      },
+    },
+    {
       $unwind: {
         path: "$part_details",
         preserveNullAndEmptyArrays: true,
@@ -50,7 +57,8 @@ export async function syncMongoSalesData() {
     },
   ];
 
-  salesCollection.aggregate(linkPartDataPipeline);
+  console.log("aggregating data...");
+  await salesCollection.aggregate(linkPartDataPipeline).toArray();
 
   await client.close();
   return salesJSON;
@@ -292,9 +300,42 @@ function getProductGroup(data) {
 
 export async function convertMongoDataToCSV(data) {
   let csvData = `Month, Invoiced Date, Customer Company, Customer City, Customer State/Prov, Customer Postal Code, Ship To Company, Ship To City, Ship To State/Prov, Ship To Postal Code, Ship To Country, DK Part Nbr, Mfg Part Number, Return Flag, Shipped Qty, Total Billable Orders, Series, Product Group`;
-  data.forEach((salesLine) => {
+  data.forEach((salesLine, i) => {
     csvData += `\n"${salesLine["Month"]}","${salesLine["Invoiced Date"]}","${salesLine["Customer Company"]}","${salesLine["Customer City"]}","${salesLine["Customer State/Prov"]}","${salesLine["Customer Postal Code"]}","${salesLine["Ship To Company"]}","${salesLine["Ship To City"]}","${salesLine["Ship To State/Prov"]}","${salesLine["Ship To Postal Code"]}","${salesLine["Ship To Country"]}","${salesLine["DK Part Nbr"]}","${salesLine["Mfg Part Number"]}","${salesLine["Return Flag"]}","${salesLine["Shipped Qty"]}","${salesLine["Total Billable Orders"]}","${salesLine["Series"]}","${salesLine["ProductGroup"]}"`;
   });
 
   return csvData;
 }
+
+// const regexPNPipeline = [
+//   {
+//     $match: {
+//       Series: {
+//         $exists: false,
+//       },
+//     },
+//   },
+//   {
+//     $addFields: {
+//       Series: {
+//         $regexFind: {
+//           input: "$Mfg Part Number",
+//           regex: /D1\D+/,
+//         },
+//       },
+//     },
+//   },
+//   {
+//     $addFields: {
+//       Series: "$Series.match",
+//     },
+//   },
+//   {
+//     $merge: {
+//       into: "sales_data",
+//       on: "_id",
+//       whenMatched: "merge",
+//       whenNotMatched: "discard",
+//     },
+//   },
+// ];

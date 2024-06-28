@@ -2,6 +2,7 @@ import express, { json } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { config } from "dotenv";
+import { schedule } from "node-cron";
 import { csvRequest } from "./login.js";
 import { microstrategySessionCredentials } from "./getSessionCookies.js";
 import {
@@ -150,7 +151,46 @@ app.get("/csv/:document", authorize, async (req, res) => {
   getCsvData();
 });
 
+app.patch("/sync_mongo_data", authorize, async (req, res) => {
+  try {
+    console.log("Refreshing MongoDB data from sales API...");
+    await syncMongoSalesData(); // refresh mongo data
+    console.log("\ncompleted!");
+    return res.status(200).end();
+  } catch (error) {
+    console.error(
+      `Error while completing manual refresh of Mongo data:: ${error} \n${error.stack}`
+    );
+    return res.status(500).end("Error syncing data!");
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Server is listening on port ${port}`);
+});
+
+// Cron job format explanation
+// The following lines are used to explain the node-cron scheduling format
+// ┌────────────── second (optional)
+// │ ┌──────────── minute
+// │ │ ┌────────── hour
+// │ │ │ ┌──────── day of month
+// │ │ │ │ ┌────── month
+// │ │ │ │ │ ┌──── day of week
+// │ │ │ │ │ │
+// │ │ │ │ │ │
+// * * * * * *
+
+schedule("0 11 * * *", async () => {
+  // Schedule a task every day at 6 AM
+  try {
+    console.log("Refreshing MongoDB data from sales API...");
+    await syncMongoSalesData(); // refresh mongo data
+    console.log("\ncompleted!");
+  } catch (error) {
+    console.error(
+      `Error while completing scheduled refresh of Mongo data:: ${error} \n${error.stack}`
+    );
+  }
 });

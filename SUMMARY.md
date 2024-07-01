@@ -7,3 +7,4 @@
   * [login.js](docs/login.js.md)
   * [Package.json](docs/package.json.md)
   * [Yml file & Docker configs](docs/yml-file-and-docker-configs.md)
+  * [mongoOperation.js](docs/mongooperation.js.md)

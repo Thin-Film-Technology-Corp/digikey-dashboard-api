@@ -30,18 +30,18 @@ export async function syncMongoSalesData() {
   // link part data from part_parametrics collection to the order
   let linkPartDataPipeline = [
     {
+      $match: {
+        part_details: {
+          $exists: false,
+        },
+      },
+    },
+    {
       $lookup: {
         from: "part_parametrics",
         localField: "Mfg Part Number",
         foreignField: "part_number",
         as: "part_details",
-      },
-    },
-    {
-      $match: {
-        part_details: {
-          $exists: false,
-        },
       },
     },
     {

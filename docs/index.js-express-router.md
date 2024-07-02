@@ -6,9 +6,11 @@ description: >-
 
 # index.js (Express router)
 
+## API Documentation
+
 ### Overview
 
-This file initializes an Express application, configures middleware for security and rate limiting, defines authorization logic, and sets up a route to handle CSV file requests. The main functionalities include:
+This file initializes an Express application, configures middleware for security and rate limiting, defines authorization logic, and sets up routes to handle CSV file requests and synchronize MongoDB data. The main functionalities include:
 
 * Configuring middleware
 * Handling authorization
@@ -17,12 +19,14 @@ This file initializes an Express application, configures middleware for security
 
 ### Dependencies
 
-* **express**: A minimal and flexible Node.js web application framework.
-* **helmet**: Helps secure Express apps by setting various HTTP headers.
-* **express-rate-limit**: Basic IP rate-limiting middleware for Express.
-* **dotenv**: Loads environment variables from a `.env` file.
-* **csvRequest**: Custom module for handling CSV requests.
-* **microstrategySessionCredentials**: Custom module for fetching session credentials.
+* `express`: A minimal and flexible Node.js web application framework.
+* `helmet`: Helps secure Express apps by setting various HTTP headers.
+* `express-rate-limit`: Basic IP rate-limiting middleware for Express.
+* `dotenv`: Loads environment variables from a .env file.
+* `csvRequest`: Custom module for handling CSV requests.
+* `microstrategySessionCredentials`: Custom module for fetching session credentials.
+* `node-cron`: Module for scheduling tasks in Node.js.
+* `mongoOperation`: Custom module for MongoDB operations.
 
 ### Environment Variables
 
@@ -69,7 +73,7 @@ app.use(limiter);
 
 #### Authorization
 
-Custom middleware to check for the presence and validity of the `Authorization` header.
+Custom middleware to check for the presence and validity of the Authorization header.
 
 ```javascript
 const authorize = (req, res, next) => {
@@ -88,33 +92,28 @@ const authorize = (req, res, next) => {
 
 ### Routes
 
-#### GET /csv/
+#### GET /csv/:document
 
-Fetches CSV data for the specified document. The available document types are `inventory`, `sales`, `fees`, and `billing`.
+Fetches CSV data for the specified document. The available document types are inventory, fees, and billing.
 
 **Request**
 
-* **URL Parameters**
-  * `document`: Type of document to fetch (e.g., `inventory`, `sales`, `fees`, `billing`).
+* URL Parameters:
+  * `document`: Type of document to fetch (e.g., inventory, fees, billing).
 
 **Response**
 
-* **Success (200)**
-  * Returns CSV data for the requested document.
-* **Client Error (400)**
-  * If the requested document type is invalid.
-* **Unauthorized (401)**
-  * If the authorization header is missing.
-* **Forbidden (403)**
-  * If the authorization token is invalid.
-* **Server Error (500)**
-  * If there is an internal server error.
+* Success (200): Returns CSV data for the requested document.
+* Client Error (400): If the requested document type is invalid.
+* Unauthorized (401): If the authorization header is missing.
+* Forbidden (403): If the authorization token is invalid.
+* Server Error (500): If there is an internal server error.
 
 **Example**
 
 ```javascript
 app.get("/csv/:document", authorize, async (req, res) => {
-  const paths = ["inventory", "sales", "fees", "billing"];
+  const paths = ["inventory", "fees", "billing"];
 
   if (!paths.includes(req.params.document)) {
     console.log(`Document not described ${req.params.document}`);
@@ -167,6 +166,59 @@ app.get("/csv/:document", authorize, async (req, res) => {
   };
 
   getCsvData();
+});
+```
+
+#### GET /csv/sales
+
+Fetches CSV data for sales documents from MongoDB.
+
+**Example**
+
+```javascript
+app.get("/csv/sales", authorize, async (req, res) => {
+  let csvData;
+  try {
+    console.log("getting sales data from mongo...");
+    let salesData = await retrieveMongoSalesData();
+    console.log("converting sales data to csv...");
+    csvData = await convertMongoDataToCSV(salesData);
+  } catch (error) {
+    console.error(
+      `error getting csv for sales from mongo: ${error} \n ${error.stack}`
+    );
+    return res.status(500).end();
+  }
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="digikey_sales_report.csv"`
+  );
+  console.log("sending csv...");
+  res.status(200).send(csvData).end();
+});
+```
+
+#### PATCH /sync\_mongo\_data
+
+Synchronizes MongoDB data with the sales API.
+
+**Example**
+
+```javascript
+app.patch("/sync_mongo_data", authorize, async (req, res) => {
+  try {
+    console.log("Refreshing MongoDB data from sales API...");
+    await syncMongoSalesData(); // refresh mongo data
+    console.log("\ncompleted!");
+    return res.status(200).end();
+  } catch (error) {
+    console.error(
+      `Error while completing manual refresh of Mongo data:: ${error} \n${error.stack}`
+    );
+    return res.status(500).end("Error syncing data!");
+  }
 });
 ```
 
@@ -225,4 +277,20 @@ app.listen(port, () => {
 });
 ```
 
-This completes the API documentation. For further details or questions, please refer to the source code or contact the development team.
+### Cron Job
+
+Schedules a task to refresh MongoDB data from the sales API every day at 11 AM ZULU.
+
+```javascript
+schedule("0 11 * * *", async () => {
+  try {
+    console.log("Refreshing MongoDB data from sales API...");
+    await syncMongoSalesData(); // refresh mongo data
+    console.log("\ncompleted!");
+  } catch (error) {
+    console.error(
+      `Error while completing scheduled refresh of Mongo data:: ${error} \n${error.stack}`
+    );
+  }
+});
+```

@@ -51,6 +51,21 @@ export async function syncMongoSalesData() {
       },
     },
     {
+      $addFields: {
+        Series: {
+          $regexFind: {
+            input: "$Mfg Part Number",
+            regex: /D1\D{3}/,
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        Series: "$Series.match",
+      },
+    },
+    {
       $merge: {
         into: "sales_data",
       },

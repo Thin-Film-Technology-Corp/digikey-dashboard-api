@@ -3,6 +3,7 @@ import { MongoClient } from "mongodb";
 import { csvRequest } from "./login.js";
 import { microstrategySessionCredentials } from "./getSessionCookies.js";
 import crypto from "crypto";
+import { getAllPartsInDigikeySearchV4 } from "./digiKeyAPI.js";
 
 config();
 
@@ -321,6 +322,129 @@ export async function convertMongoDataToCSV(data) {
 
   return csvData;
 }
+
+export async function syncMongoPartData() {
+  const client = new MongoClient(process.env.part_parametric_connection_string);
+
+  try {
+    await client.connect();
+
+    const db = client.db("part-parametrics");
+    const part_collection = db.collection("part_parametrics");
+
+    let rawParts = await getAllPartsInDigikeySearchV4();
+
+    const partsWrite = rawParts.map((rawPart) => {
+      let partFormat = convertPartFormat(rawPart);
+      console.log(partFormat.part_number);
+      return {
+        updateOne: {
+          filter: {
+            part_number: partFormat.part_number,
+          },
+          update: { $set: partFormat },
+          upsert: true,
+        },
+      };
+    });
+
+    const result = await part_collection.bulkWrite(partsWrite);
+    return console.log(`Inserted ${result.updatedCount} new document(s).`);
+  } catch (error) {
+    console.error("An error occurred while syncing part data:", error);
+  } finally {
+    await client.close();
+  }
+}
+
+function convertPartFormat(originalData) {
+  return {
+    product_description: originalData.Description.ProductDescription,
+    detailed_description: originalData.Description.DetailedDescription,
+    part_number: originalData.ManufacturerProductNumber,
+    product_url: originalData.ProductUrl,
+    datasheet_url: originalData.DatasheetUrl,
+    photo_url: originalData.PhotoUrl,
+    video_url: originalData.PrimaryVideoUrl || "",
+    status: originalData.ProductStatus.Status,
+    resistance:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Resistance"
+      )?.ValueText || "",
+    resistance_tolerance:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Tolerance"
+      )?.ValueText || "",
+    power:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Power (Watts)"
+      )?.ValueText || "",
+    composition:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Composition"
+      )?.ValueText || "",
+    features: originalData.Parameters.filter(
+      (param) => param.ParameterText === "Features"
+    ).map((param) => param.ValueText),
+    temp_coefficient:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Temperature Coefficient"
+      )?.ValueText || "",
+    operating_temperature:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Operating Temperature"
+      )?.ValueText || "",
+    digikey_case_size:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Package / Case"
+      )?.ValueText || "",
+    case_size:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Supplier Device Package"
+      )?.ValueText || "",
+    ratings: originalData.Parameters.filter(
+      (param) => param.ParameterText === "Ratings"
+    ).map((param) => param.ValueText),
+    dimensions:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Size / Dimension"
+      )?.ValueText || "",
+    height:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Height - Seated (Max)"
+      )?.ValueText || "",
+    terminations_number:
+      parseInt(
+        originalData.Parameters.find(
+          (param) => param.ParameterText === "Number of Terminations"
+        )?.ValueText
+      ) || 0,
+    fail_rate:
+      originalData.Parameters.find(
+        (param) => param.ParameterText === "Failure Rate"
+      )?.ValueText || "",
+    category: originalData.Category.Name,
+    sub_category:
+      originalData.Category.ChildCategories.length > 0
+        ? originalData.Category.ChildCategories[0].Name
+        : "",
+    series: originalData.Series.Name,
+    classifications: {
+      reach_status: originalData.Classifications.ReachStatus,
+      rohs_status: originalData.Classifications.RohsStatus,
+      moisture_sensitivity_level:
+        originalData.Classifications.MoistureSensitivityLevel,
+      export_control_class_number:
+        originalData.Classifications.ExportControlClassNumber,
+      htsus_code: originalData.Classifications.HtsusCode,
+    },
+    standard_reel_pricing: originalData.ProductVariations.filter(
+      (a) => a.PackageType.Name === "Tape & Reel (TR)"
+    )[0].StandardPricing[0],
+  };
+}
+
+syncMongoPartData();
 
 // const regexPNPipeline = [
 //   {

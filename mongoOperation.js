@@ -336,7 +336,6 @@ export async function syncMongoPartData() {
 
     const partsWrite = rawParts.map((rawPart) => {
       let partFormat = convertPartFormat(rawPart);
-      console.log(partFormat.part_number);
       return {
         updateOne: {
           filter: {
@@ -349,7 +348,7 @@ export async function syncMongoPartData() {
     });
 
     const result = await part_collection.bulkWrite(partsWrite);
-    return console.log(`Inserted ${result.updatedCount} new document(s).`);
+    return console.log(`Updated ${result.modifiedCount} new document(s).`);
   } catch (error) {
     console.error("An error occurred while syncing part data:", error);
   } finally {
@@ -443,8 +442,6 @@ function convertPartFormat(originalData) {
     )[0].StandardPricing[0],
   };
 }
-
-syncMongoPartData();
 
 // const regexPNPipeline = [
 //   {

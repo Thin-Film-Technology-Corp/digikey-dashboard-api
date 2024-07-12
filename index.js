@@ -9,6 +9,7 @@ import {
   syncMongoSalesData,
   retrieveMongoSalesData,
   convertMongoDataToCSV,
+  syncMongoPartData,
 } from "./mongoOperation.js";
 
 const app = express();
@@ -155,7 +156,9 @@ app.patch("/sync_mongo_data", authorize, async (req, res) => {
   try {
     console.log("Refreshing MongoDB data from sales API...");
     await syncMongoSalesData(); // refresh mongo data
-    console.log("\ncompleted!");
+    console.log("\ncompleted!\n\nRefreshing MongoDB data from part API...");
+    await syncMongoPartData();
+    console.log("completed!");
     return res.status(200).end();
   } catch (error) {
     console.error(
@@ -187,7 +190,9 @@ schedule("0 11 * * *", async () => {
   try {
     console.log("Refreshing MongoDB data from sales API...");
     await syncMongoSalesData(); // refresh mongo data
-    console.log("\ncompleted!");
+    console.log("\ncompleted!\n\nRefreshing MongoDB data from part API...");
+    await syncMongoPartData();
+    console.log("completed!");
   } catch (error) {
     console.error(
       `Error while completing scheduled refresh of Mongo data:: ${error} \n${error.stack}`

@@ -356,6 +356,110 @@ export async function syncMongoPartData() {
   }
 }
 
+export async function converPartDataToCSV() {
+  const client = new MongoClient(process.env.part_parametric_connection_string);
+  await client.connect();
+
+  const db = client.db("part-parametrics");
+  const part_collection = db.collection("part_parametrics");
+  let data = await part_collection.find({}).toArray();
+  const headers = [
+    "product_description",
+    "detailed_description",
+    "part_number",
+    "product_url",
+    "datasheet_url",
+    "photo_url",
+    "video_url",
+    "status",
+    "resistance",
+    "resistance_tolerance",
+    "power",
+    "composition",
+    "features",
+    "temp_coefficient",
+    "operating_temperature",
+    "digikey_case_size",
+    "case_size",
+    "ratings",
+    "dimensions",
+    "height",
+    "terminations_number",
+    "fail_rate",
+    "category",
+    "sub_category",
+    "series",
+    "reach_status",
+    "rohs_status",
+    "moisture_sensitivity_level",
+    "export_control_class_number",
+    "htsus_code",
+    "in_digikey",
+    "break_quantity",
+    "unit_price",
+    "total_price",
+  ];
+
+  // Flatten the document structure for CSV conversion
+  let flattenedData = data.map((document) => {
+    // console.log(document);
+    return {
+      product_description: document.product_description,
+      detailed_description: document.detailed_description,
+      part_number: document.part_number,
+      product_url: document.product_url,
+      datasheet_url: document.datasheet_url,
+      photo_url: document.photo_url,
+      video_url: document.video_url,
+      status: document.status,
+      resistance: document.resistance,
+      resistance_tolerance: document.resistance_tolerance,
+      power: document.power,
+      composition: document.composition,
+      features: document.features?.join(", "),
+      temp_coefficient: document.temp_coefficient,
+      operating_temperature: document.operating_temperature,
+      digikey_case_size: document.digikey_case_size,
+      case_size: document.case_size,
+      ratings: document.ratings?.join(", "),
+      dimensions: document.dimensions,
+      height: document.height,
+      terminations_number: document.terminations_number,
+      fail_rate: document.fail_rate,
+      category: document.category,
+      sub_category: document.sub_category,
+      series: document.series,
+      reach_status: document.classifications?.reach_status,
+      rohs_status: document.classifications?.rohs_status,
+      moisture_sensitivity_level:
+        document.classifications?.moisture_sensitivity_level,
+      export_control_class_number:
+        document.classifications?.export_control_class_number,
+      htsus_code: document.classifications?.htsus_code,
+      in_digikey: document.in_digikey,
+      break_quantity: document.standard_reel_pricing?.BreakQuantity,
+      unit_price: document.standard_reel_pricing?.UnitPrice,
+      total_price: document.standard_reel_pricing?.TotalPrice,
+    };
+  });
+  // console.log(flattenedData[2]);
+
+  const csvRows = [headers.join(",")];
+  flattenedData.forEach((flattenedDocument) => {
+    const values = headers.map((header) => {
+      const value = flattenedDocument[header];
+      return value !== undefined
+        ? `"${String(value).replace(/"/g, '""')}"`
+        : '""';
+    });
+    csvRows.push(values.join(","));
+  });
+
+  let csv = csvRows.join("\n");
+
+  return csv;
+}
+
 function convertPartFormat(originalData) {
   return {
     product_description: originalData.Description.ProductDescription,

@@ -10,7 +10,9 @@ import {
   retrieveMongoSalesData,
   convertMongoDataToCSV,
   syncMongoPartData,
+  converPartDataToCSV,
 } from "./mongoOperation.js";
+import { getAllPartsInDigikeySearchV4 } from "./digiKeyAPI.js";
 
 const app = express();
 
@@ -94,6 +96,18 @@ app.get("/csv/sales", authorize, async (req, res) => {
   );
   console.log("sending csv...");
   res.status(200).send(csvData).end();
+});
+
+// send all mongo parts
+app.get("/csv/parts", authorize, async (req, res) => {
+  let csv = await converPartDataToCSV();
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="digikey_sales_report.csv"`
+  );
+  return res.status(200).send(csv);
 });
 
 app.get("/csv/:document", authorize, async (req, res) => {

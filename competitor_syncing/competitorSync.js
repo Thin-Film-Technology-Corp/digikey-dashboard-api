@@ -11,16 +11,15 @@ async function retrieveResistorPNs(accessToken) {
   const body = {
     Keywords: "Resistor",
     Limit: 50,
-    Offset: 127600,
+    Offset: 121500,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
       ParameterFilterRequest: {
         CategoryFilter: { Id: "52", Value: "Chip Resistor - Surface Mount" },
-        StatusFilter: [{ Id: 0, Value: "Active" }],
       },
+      StatusFilter: [{ Id: 0, Value: "Active" }],
     },
-    ProductStatus: "Active",
     ExcludeMarketPlaceProducts: false,
     SortOptions: {
       Field: "None",
@@ -28,41 +27,32 @@ async function retrieveResistorPNs(accessToken) {
     },
   };
   const pns = await getAllPartsInDigikeySearchV4(accessToken, body);
-  return pns;
+  //   structure the new data into the correct format
+  let newDB = [];
+  pns.forEach((pn) => {
+    newDB.push(structurePNs(pn));
+  });
+
+  return newDB;
 }
 
-function modifyPricingData(pricingData) {
+function addHashAndDate(data, hash) {
+  hash = hash || false;
   const date = new Date();
   const day = date.getDate();
   const month = date.getMonth() + 1;
   const year = date.getFullYear();
 
-  const hash = createHash("MD5");
-  hash.update(JSON.stringify(pricingData));
+  if (hash) {
+    const hash = createHash("MD5");
+    hash.update(JSON.stringify(data));
+    data.hash = hash.digest("hex");
+  }
+  data.day = day;
+  data.month = month;
+  data.year = year;
 
-  pricingData.hash = hash.digest("hex");
-  pricingData.day = day;
-  pricingData.month = month;
-  pricingData.year = year;
-  return pricingData;
-}
-
-function modifyInventoryData(quantity) {
-  const date = new Date();
-  const day = date.getDate();
-  const month = date.getMonth() + 1;
-  const year = date.getFullYear();
-  const retObj = {
-    day: day,
-    month: month,
-    year: year,
-    inventory: quantity,
-  };
-  const hash = createHash("MD5");
-  hash.update(JSON.stringify(retObj));
-  retObj.hash = hash.digest("hex");
-
-  return retObj;
+  return data;
 }
 
 function structurePNs(originalData) {
@@ -80,8 +70,22 @@ function structurePNs(originalData) {
         (variation) => variation.PackageType.Id === 3
       )?.StandardPricing || [],
   };
-  let pricingData = modifyPricingData(unparsedPricingData);
-  let inventoryData = modifyInventoryData(originalData.QuantityAvailable);
+  let unparsedQuantityData = {
+    tape_reel:
+      originalData.ProductVariations.find(
+        (variation) => variation.PackageType.Id === 1
+      )?.QuantityAvailableforPackageType || 0,
+    cut_tape:
+      originalData.ProductVariations.find(
+        (variation) => variation.PackageType.Id === 2
+      )?.QuantityAvailableforPackageType || 0,
+    digi_reel:
+      originalData.ProductVariations.find(
+        (variation) => variation.PackageType.Id === 3
+      )?.QuantityAvailableforPackageType || 0,
+  };
+  let pricingData = [addHashAndDate(unparsedPricingData, true)];
+  let inventoryData = [addHashAndDate(unparsedQuantityData, true)];
 
   return {
     product_description: originalData.Description.ProductDescription,
@@ -168,18 +172,51 @@ function structurePNs(originalData) {
   };
 }
 
+function compareHashes(newData, oldData) {
+  const newHash = newData[0].hash;
+  const oldHash = oldData[oldData.length - 1].hash;
+  if (newHash !== oldHash) {
+    oldData.push(newData[0]);
+  }
+
+  return oldData;
+}
+
+function compareQueryToDatabase(queryResults, database) {
+  queryResults.forEach((pn) => {
+    // TODO: replace with mongo find function
+    let oldPNData = database.find((x) => x.part_number === pn.part_number);
+
+    if (oldPNData) {
+      // TODO: add this to an array and then run a bulk operation in Mongo
+      oldPNData.pricing = compareHashes(pn.pricing, oldPNData.pricing);
+      oldPNData.inventory = compareHashes(pn.inventory, oldPNData.inventory);
+    } else {
+      database.push(pn);
+    }
+  });
+
+  return database;
+}
+
 async function syncCompetitors() {
-  //   const accessToken = await getAccessTokenForDigikeyAPI();
-  //   let pns = await retrieveResistorPNs(accessToken);
-  let pns = await JSON.parse(
-    readFileSync("./temp/originalPNS.json").toString()
-  );
-  //   console.log(pns);
-  //   console.log(structurePNs(pns[2]));
-  let structuredPN = structurePNs(pns[56]);
-  console.log(structuredPN);
+  console.log("getting access token for digikey...");
+  const accessToken = await getAccessTokenForDigikeyAPI();
+
+  console.log("retrieving all Chip Resistors from Digikey...");
+  let pns = await retrieveResistorPNs(accessToken);
+
+  //   TODO: replace with mongo instance
+  console.log("connecting to Mongo instance...");
+  let testDB = await JSON.parse(readFileSync("./temp/testDB.json").toString());
+
+  console.log("comparing delta between query and Mongo...");
+  let bulkOperation = compareQueryToDatabase(pns, testDB);
+
+  // TODO: run bulk upsert operation
+  console.log(`completed:\n${0} doc(s) updated \n${0} doc(s) created`);
 }
 
 syncCompetitors().then((data) => {
-  console.log(data);
+  //   console.log(data);
 });

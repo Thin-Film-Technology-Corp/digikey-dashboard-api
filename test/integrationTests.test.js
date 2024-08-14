@@ -15,6 +15,8 @@ import {
   getTokenForMicroStrategy,
 } from "../getSessionCookies.js";
 import { csvRequest } from "../login.js";
+import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
+import { retrieveResistorPNs } from "../competitor_syncing/competitorSync.js";
 config();
 
 describe("Integration testing for sales data workflow", async function () {
@@ -248,5 +250,100 @@ describe("Integration testing for dashboard document data workflow", async funct
     expect(csv).to.include(
       `"Vendor ID","Transaction Date","Vendor Invoice Nbr","Memo ID","Reference Note","Transaction Amount","Currency","Pending Invoice Amount","Pending Fees Amount","Pending Misc Amt"`
     );
+  });
+});
+
+describe("syncs competitor data", async function () {
+  let accessToken;
+  let partData;
+  // get access token for digikey api
+  it("Retrieves access token for DigiKey REST API", async function () {
+    accessToken = await getAccessTokenForDigikeyAPI();
+    expect(accessToken).to.be.a("string");
+  });
+  // get chip resistors from api
+  it("Retrieves resistor data from part search V4", async function () {
+    this.timeout(15000);
+    partData = await retrieveResistorPNs(accessToken);
+    expect(partData).to.be.an("array");
+    expect(partData[0]).to.have.all.keys(
+      "product_description",
+      "detailed_description",
+      "part_number",
+      "product_url",
+      "datasheet_url",
+      "photo_url",
+      "video_url",
+      "status",
+      "resistance",
+      "resistance_tolerance",
+      "power",
+      "composition",
+      "features",
+      "temp_coefficient",
+      "operating_temperature",
+      "digikey_case_size",
+      "case_size",
+      "ratings",
+      "dimensions",
+      "height",
+      "terminations_number",
+      "fail_rate",
+      "category",
+      "sub_category",
+      "series",
+      "classifications",
+      "pricing",
+      "inventory"
+    );
+
+    expect(partData[0].product_description).to.be.a("string");
+    expect(partData[0].detailed_description).to.be.a("string");
+    expect(partData[0].part_number).to.be.a("string");
+    expect(partData[0].product_url).to.be.a("string");
+    expect(partData[0].datasheet_url).to.be.a("string");
+    expect(partData[0].photo_url).to.be.a("string");
+    expect(partData[0].video_url).to.be.a("string");
+    expect(partData[0].status).to.be.a("string");
+    expect(partData[0].resistance).to.be.a("string");
+    expect(partData[0].resistance_tolerance).to.be.a("string");
+    expect(partData[0].power).to.be.a("string");
+    expect(partData[0].composition).to.be.a("string");
+    expect(partData[0].features).to.be.an("array").that.is.not.empty;
+    expect(partData[0].temp_coefficient).to.be.a("string");
+    expect(partData[0].operating_temperature).to.be.a("string");
+    expect(partData[0].digikey_case_size).to.be.a("string");
+    expect(partData[0].case_size).to.be.a("string");
+    expect(partData[0].ratings).to.be.an("array");
+    expect(partData[0].dimensions).to.be.a("string");
+    expect(partData[0].height).to.be.a("string");
+    expect(partData[0].terminations_number).to.be.a("number");
+    expect(partData[0].fail_rate).to.be.a("string");
+    expect(partData[0].category).to.be.a("string");
+    expect(partData[0].sub_category).to.be.a("string");
+    expect(partData[0].series).to.be.a("string");
+
+    expect(partData[0].classifications)
+      .to.be.an("object")
+      .that.includes.all.keys(
+        "reach_status",
+        "rohs_status",
+        "moisture_sensitivity_level",
+        "export_control_class_number",
+        "htsus_code"
+      );
+
+    expect(partData[0].classifications.reach_status).to.be.a("string");
+    expect(partData[0].classifications.rohs_status).to.be.a("string");
+    expect(partData[0].classifications.moisture_sensitivity_level).to.be.a(
+      "string"
+    );
+    expect(partData[0].classifications.export_control_class_number).to.be.a(
+      "string"
+    );
+    expect(partData[0].classifications.htsus_code).to.be.a("string");
+
+    expect(partData[0].pricing).to.be.an("array").that.is.not.empty;
+    expect(partData[0].inventory).to.be.an("array").that.is.not.empty;
   });
 });

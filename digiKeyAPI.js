@@ -1,6 +1,12 @@
 import { config } from "dotenv";
 config();
 
+function logExceptOnTest(string) {
+  if (process.env.NODE_ENV !== "test") {
+    console.log(string);
+  }
+}
+
 export async function getAllPartsInDigikeySearchV4(accessToken, body, allData) {
   allData = allData || [];
   body = body || {
@@ -24,7 +30,7 @@ export async function getAllPartsInDigikeySearchV4(accessToken, body, allData) {
     },
   };
   accessToken = accessToken || (await getAccessTokenForDigikeyAPI());
-  console.log(body.Offset);
+  logExceptOnTest(body.Offset);
 
   let response = await fetch(
     "https://api.digikey.com/products/v4/search/keyword",
@@ -53,7 +59,7 @@ export async function getAllPartsInDigikeySearchV4(accessToken, body, allData) {
       return allData;
     }
   } else {
-    console.log(
+    logExceptOnTest(
       `error ${response.status} ${
         response.statusText
       } \n${await response.text()}`
@@ -74,10 +80,10 @@ export async function getAccessTokenForDigikeyAPI() {
   });
   if (response.ok) {
     let data = await response.json();
-    // console.log(data);
+    // logExceptOnTest(data);
     return data.access_token;
   } else {
-    console.log(
+    logExceptOnTest(
       `${response.status}\n ${response.statusText}\n ${await response.text()}`
     );
   }

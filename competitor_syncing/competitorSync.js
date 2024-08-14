@@ -7,8 +7,14 @@ import {
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-async function retrieveResistorPNs(accessToken) {
-  const body = {
+function logExceptOnTest(string) {
+  if (process.env.NODE_ENV !== "test") {
+    console.log(string);
+  }
+}
+
+export async function retrieveResistorPNs(accessToken, body) {
+  body = body || {
     Keywords: "Resistor",
     Limit: 50,
     Offset: 121500,
@@ -200,23 +206,23 @@ function compareQueryToDatabase(queryResults, database) {
 }
 
 async function syncCompetitors() {
-  console.log("getting access token for digikey...");
+  logExceptOnTest("getting access token for digikey...");
   const accessToken = await getAccessTokenForDigikeyAPI();
 
-  console.log("retrieving all Chip Resistors from Digikey...");
+  logExceptOnTest("retrieving all Chip Resistors from Digikey...");
   let pns = await retrieveResistorPNs(accessToken);
 
   //   TODO: replace with mongo instance
-  console.log("connecting to Mongo instance...");
+  logExceptOnTest("connecting to Mongo instance...");
   let testDB = await JSON.parse(readFileSync("./temp/testDB.json").toString());
 
-  console.log("comparing delta between query and Mongo...");
+  logExceptOnTest("comparing delta between query and Mongo...");
   let bulkOperation = compareQueryToDatabase(pns, testDB);
 
   // TODO: run bulk upsert operation
-  console.log(`completed:\n${0} doc(s) updated \n${0} doc(s) created`);
+  logExceptOnTest(`completed:\n${0} doc(s) updated \n${0} doc(s) created`);
 }
 
 syncCompetitors().then((data) => {
-  //   console.log(data);
+  //   logExceptOnTest(data);
 });

@@ -7,6 +7,12 @@ import { getAllPartsInDigikeySearchV4 } from "./digiKeyAPI.js";
 
 config();
 
+function logExceptOnTest(string) {
+  if (process.env.NODE_ENV !== "test") {
+    console.log(string);
+  }
+}
+
 export async function syncMongoSalesData() {
   // connect to mongo collection
   const client = new MongoClient(process.env.part_parametric_connection_string);
@@ -73,7 +79,7 @@ export async function syncMongoSalesData() {
     },
   ];
 
-  console.log("aggregating data...");
+  logExceptOnTest("aggregating data...");
   await salesCollection.aggregate(linkPartDataPipeline).toArray();
 
   await client.close();
@@ -85,26 +91,26 @@ async function getCsvData() {
   try {
     sessionObj = await getSessionCredentials();
 
-    console.log("Using session information...");
+    logExceptOnTest("Using session information...");
 
     const csvBuffer = await csvRequest(
       sessionObj.sessionCookies,
       sessionObj.authToken,
       "sales"
     );
-    console.log("Retrieved CSV data...");
+    logExceptOnTest("Retrieved CSV data...");
 
     // const csv = Buffer.from(csvBuffer, "binary").toString("utf-8");
     return csvBuffer.toString("utf-16le");
   } catch (error) {
-    console.log(`Error getting CSVs: ${error.message} \n${error.stack}`);
+    logExceptOnTest(`Error getting CSVs: ${error.message} \n${error.stack}`);
     if (error.statusCode === 401 && retries < maxRetries) {
       retries++;
-      console.log("Session expired. Fetching new session credentials...");
+      logExceptOnTest("Session expired. Fetching new session credentials...");
       sessionObj = await getSessionCredentials();
       return getCsvData(); // Retry with new session credentials
     } else if (error.statusCode === 401 && retries >= maxRetries) {
-      console.log("Received request while authorizing!");
+      logExceptOnTest("Received request while authorizing!");
       return;
     } else {
       return;
@@ -118,7 +124,7 @@ async function getSessionCredentials(retries) {
       throw new Error("Exceeded maximum retries to fetch session credentials.");
     }
 
-    console.log("Fetching new session credentials...");
+    logExceptOnTest("Fetching new session credentials...");
     const sessionObj = await microstrategySessionCredentials(
       process.env.digikey_username,
       process.env.digikey_password
@@ -132,7 +138,7 @@ async function getSessionCredentials(retries) {
   } catch (error) {
     console.error(`Error in getSessionCredentials: ${error.message}`);
     if (retries > 1) {
-      console.log(`\n\nRetrying... (${retries - 1} retries left)\n\n`);
+      logExceptOnTest(`\n\nRetrying... (${retries - 1} retries left)\n\n`);
       return await getSessionCredentials(retries - 1);
     } else {
       throw new Error(
@@ -144,14 +150,14 @@ async function getSessionCredentials(retries) {
 
 function turnCSVIntoJSON(csv) {
   const retArr = [];
-  // console.log(csv);
+  // logExceptOnTest(csv);
   let lines = csv.split(`\r\n`);
-  // console.log(lines);
+  // logExceptOnTest(lines);
 
   for (let i = 1; i < lines.length; i++) {
-    // console.log(i);
+    // logExceptOnTest(i);
     let lineArr = lines[i].split(`","`);
-    // console.log(lineArr);
+    // logExceptOnTest(lineArr);
     let retObj = {};
     lines[0].split(`,`).forEach((elem) => {
       elem = elem.replace(/['"\uFEFF]*/gm, "");
@@ -212,7 +218,7 @@ async function insertIfNotExists(client, dbName, collectionName, documents) {
 
   try {
     const result = await col.bulkWrite(bulkOps);
-    console.log(`Inserted ${result.upsertedCount} new document(s).`);
+    logExceptOnTest(`Inserted ${result.upsertedCount} new document(s).`);
   } catch (err) {
     console.error(`Failed to insert documents: ${err}`);
   }
@@ -348,7 +354,7 @@ export async function syncMongoPartData() {
     });
 
     const result = await part_collection.bulkWrite(partsWrite);
-    return console.log(`Updated ${result.modifiedCount} new document(s).`);
+    return logExceptOnTest(`Updated ${result.modifiedCount} new document(s).`);
   } catch (error) {
     console.error("An error occurred while syncing part data:", error);
   } finally {
@@ -373,7 +379,7 @@ export async function retrieveMongoPartData(partNumber) {
 
 export function flattenPartData(partData) {
   let flattenedData = partData.map((document) => {
-    // console.log(document);
+    // logExceptOnTest(document);
     return {
       product_description: document.product_description,
       detailed_description: document.detailed_description,

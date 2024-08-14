@@ -11,6 +11,8 @@ import {
   convertMongoDataToCSV,
   syncMongoPartData,
   converPartDataToCSV,
+  retrieveMongoPartData,
+  flattenPartData,
 } from "./mongoOperation.js";
 import { getAllPartsInDigikeySearchV4 } from "./digiKeyAPI.js";
 
@@ -100,7 +102,9 @@ app.get("/csv/sales", authorize, async (req, res) => {
 
 // send all mongo parts
 app.get("/csv/parts", authorize, async (req, res) => {
-  let csv = await converPartDataToCSV();
+  const partData = await retrieveMongoPartData();
+  const flattenedData = flattenPartData(partData);
+  const csv = converPartDataToCSV(flattenedData);
 
   res.setHeader("Content-Type", "text/csv");
   res.setHeader(

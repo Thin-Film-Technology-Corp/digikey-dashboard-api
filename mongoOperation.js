@@ -314,7 +314,7 @@ function getProductGroup(data) {
   return 0;
 }
 
-export async function convertMongoDataToCSV(data) {
+export function convertMongoDataToCSV(data) {
   let csvData = `Month, Invoiced Date, Customer Company, Customer City, Customer State/Prov, Customer Postal Code, Ship To Company, Ship To City, Ship To State/Prov, Ship To Postal Code, Ship To Country, DK Part Nbr, Mfg Part Number, Return Flag, Shipped Qty, Total Billable Orders, Series, Product Group`;
   data.forEach((salesLine, i) => {
     csvData += `\n"${salesLine["Month"]}","${salesLine["Invoiced Date"]}","${salesLine["Customer Company"]}","${salesLine["Customer City"]}","${salesLine["Customer State/Prov"]}","${salesLine["Customer Postal Code"]}","${salesLine["Ship To Company"]}","${salesLine["Ship To City"]}","${salesLine["Ship To State/Prov"]}","${salesLine["Ship To Postal Code"]}","${salesLine["Ship To Country"]}","${salesLine["DK Part Nbr"]}","${salesLine["Mfg Part Number"]}","${salesLine["Return Flag"]}","${salesLine["Shipped Qty"]}","${salesLine["Total Billable Orders"]}","${salesLine["Series"]}","${salesLine["ProductGroup"]}"`;
@@ -356,53 +356,23 @@ export async function syncMongoPartData() {
   }
 }
 
-// !break this up
-export async function converPartDataToCSV() {
+export async function retrieveMongoPartData(partNumber) {
+  partNumber = partNumber || null;
+  const query = {};
+  if (partNumber) {
+    query["Mfg Part Number"] = { $regex: partNumber };
+  }
   const client = new MongoClient(process.env.part_parametric_connection_string);
   await client.connect();
 
   const db = client.db("part-parametrics");
   const part_collection = db.collection("part_parametrics");
-  let data = await part_collection.find({}).toArray();
-  const headers = [
-    "product_description",
-    "detailed_description",
-    "part_number",
-    "product_url",
-    "datasheet_url",
-    "photo_url",
-    "video_url",
-    "status",
-    "resistance",
-    "resistance_tolerance",
-    "power",
-    "composition",
-    "features",
-    "temp_coefficient",
-    "operating_temperature",
-    "digikey_case_size",
-    "case_size",
-    "ratings",
-    "dimensions",
-    "height",
-    "terminations_number",
-    "fail_rate",
-    "category",
-    "sub_category",
-    "series",
-    "reach_status",
-    "rohs_status",
-    "moisture_sensitivity_level",
-    "export_control_class_number",
-    "htsus_code",
-    "in_digikey",
-    "break_quantity",
-    "unit_price",
-    "total_price",
-  ];
+  let data = await part_collection.find(query).toArray();
+  return data;
+}
 
-  // Flatten the document structure for CSV conversion
-  let flattenedData = data.map((document) => {
+export function flattenPartData(partData) {
+  let flattenedData = partData.map((document) => {
     // console.log(document);
     return {
       product_description: document.product_description,
@@ -443,8 +413,46 @@ export async function converPartDataToCSV() {
       total_price: document.standard_reel_pricing?.TotalPrice,
     };
   });
-  // console.log(flattenedData[2]);
+  return flattenedData;
+}
 
+export function converPartDataToCSV(flattenedData) {
+  const headers = [
+    "product_description",
+    "detailed_description",
+    "part_number",
+    "product_url",
+    "datasheet_url",
+    "photo_url",
+    "video_url",
+    "status",
+    "resistance",
+    "resistance_tolerance",
+    "power",
+    "composition",
+    "features",
+    "temp_coefficient",
+    "operating_temperature",
+    "digikey_case_size",
+    "case_size",
+    "ratings",
+    "dimensions",
+    "height",
+    "terminations_number",
+    "fail_rate",
+    "category",
+    "sub_category",
+    "series",
+    "reach_status",
+    "rohs_status",
+    "moisture_sensitivity_level",
+    "export_control_class_number",
+    "htsus_code",
+    "in_digikey",
+    "break_quantity",
+    "unit_price",
+    "total_price",
+  ];
   const csvRows = [headers.join(",")];
   flattenedData.forEach((flattenedDocument) => {
     const values = headers.map((header) => {

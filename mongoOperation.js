@@ -356,6 +356,7 @@ export async function syncMongoPartData() {
   }
 }
 
+// !break this up
 export async function converPartDataToCSV() {
   const client = new MongoClient(process.env.part_parametric_connection_string);
   await client.connect();

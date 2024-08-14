@@ -3,7 +3,7 @@ import { config } from "dotenv";
 config();
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-async function getDigiKeyCookies(userName, pass, retries = 3) {
+export async function getDigiKeyCookies(userName, pass, retries = 3) {
   try {
     if (retries <= 0) {
       throw new Error("Exceeded maximum retries to get DigiKey cookies.");
@@ -184,7 +184,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
   }
 }
 
-function getNonceFromLoginPage(pageHTML) {
+export function getNonceFromLoginPage(pageHTML) {
   try {
     let authPingCodeRegex = /\/as\/([^\/]+)\/resume\/as\/authorization\.ping/gm;
     let authPingCodeMatch = authPingCodeRegex.exec(pageHTML);
@@ -201,7 +201,7 @@ function getNonceFromLoginPage(pageHTML) {
   }
 }
 
-async function getTokenForMicroStrategy(
+export async function getTokenForMicroStrategy(
   supplierCookies,
   authCookies,
   userName,
@@ -325,7 +325,7 @@ async function getTokenForMicroStrategy(
   }
 }
 
-async function getMicroStrategySession(token, retries = 5) {
+export async function getMicroStrategySession(token, retries = 5) {
   try {
     if (retries <= 0) {
       throw new Error("Exceeded maximum retries to get MicroStrategy session.");

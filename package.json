@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "set NODE_ENV=test&& mocha --reporter spec --exit",
+    "tests:integration": "set NODE_ENV=test&& mocha 'test/integrationTests.test.js' --reporter spec --exit",
+    "tests:e2e": "set NODE_ENV=test&& mocha 'test/e2e.test.js' --reporter spec --exit",
     "dev": "nodemon index.js",
     "start": "node index.js"
   },

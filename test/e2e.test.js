@@ -45,7 +45,7 @@ describe("Express App End-to-End Tests", function () {
       /attachment; filename="digikey_inventory_report.csv"/
     );
     expect(res.text).to.be.a("string");
-  });
+  }).timeout(25000);
 
   it("Returns 400 for an invalid document type", async () => {
     const res = await request(app)

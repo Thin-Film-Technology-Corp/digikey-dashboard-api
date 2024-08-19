@@ -17,7 +17,7 @@ export async function retrieveResistorPNs(accessToken, body) {
   body = body || {
     Keywords: "Resistor",
     Limit: 50,
-    Offset: 121900,
+    Offset: 121850,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -189,28 +189,29 @@ function compareHashes(newData, oldData) {
 }
 
 async function compareQueryToDatabase(queryResults, database) {
+  // Get all the part numbers at once (batching)
+  const partNumbers = queryResults.map((pn) => pn.part_number);
+  const existingParts = await database
+    .find({ part_number: { $in: partNumbers } })
+    .toArray();
+
   let bulkOp = [];
   let insertionList = [];
-  for (let part in queryResults) {
-    let pn = queryResults[part];
-    let oldPNData = await database
-      .find({ part_number: pn.part_number })
-      .toArray();
 
-    // If this part number has been entered before
-    if (oldPNData.length === 1) {
-      // compare the pricing and inventory hashes
-      // TODO: add this to an array and then run a bulk operation in Mongo
-      let combinedPricing = compareHashes(pn.pricing, oldPNData[0].pricing);
-      let combinedInventory = compareHashes(
-        pn.inventory,
-        oldPNData[0].inventory
-      );
+  const existingPartsMap = new Map(
+    existingParts.map((p) => [p.part_number, p])
+  );
+
+  queryResults.forEach((pn) => {
+    const oldPNData = existingPartsMap.get(pn.part_number);
+
+    if (oldPNData) {
+      let combinedPricing = compareHashes(pn.pricing, oldPNData.pricing);
+      let combinedInventory = compareHashes(pn.inventory, oldPNData.inventory);
+
       bulkOp.push({
         updateOne: {
-          filter: {
-            part_number: pn.part_number,
-          },
+          filter: { part_number: pn.part_number },
           update: {
             $set: { pricing: combinedPricing, inventory: combinedInventory },
           },
@@ -219,7 +220,7 @@ async function compareQueryToDatabase(queryResults, database) {
     } else {
       insertionList.push(pn);
     }
-  }
+  });
 
   return { bulkOp: bulkOp, insertionList: insertionList };
 }

@@ -62,36 +62,32 @@ function addHashAndDate(data, hash) {
 }
 
 function structurePNs(originalData) {
-  let unparsedPricingData = {
+  const productVariations = originalData.ProductVariations;
+  const parameters = originalData.Parameters;
+
+  let pricingData = {
     tape_reel:
-      originalData.ProductVariations.find(
-        (variation) => variation.PackageType.Id === 1
-      )?.StandardPricing || [],
+      productVariations.find((v) => v.PackageType.Id === 1)?.StandardPricing ||
+      [],
     cut_tape:
-      originalData.ProductVariations.find(
-        (variation) => variation.PackageType.Id === 2
-      )?.StandardPricing || [],
+      productVariations.find((v) => v.PackageType.Id === 2)?.StandardPricing ||
+      [],
     digi_reel:
-      originalData.ProductVariations.find(
-        (variation) => variation.PackageType.Id === 3
-      )?.StandardPricing || [],
+      productVariations.find((v) => v.PackageType.Id === 3)?.StandardPricing ||
+      [],
   };
-  let unparsedQuantityData = {
+
+  let inventoryData = {
     tape_reel:
-      originalData.ProductVariations.find(
-        (variation) => variation.PackageType.Id === 1
-      )?.QuantityAvailableforPackageType || 0,
+      productVariations.find((v) => v.PackageType.Id === 1)
+        ?.QuantityAvailableforPackageType || 0,
     cut_tape:
-      originalData.ProductVariations.find(
-        (variation) => variation.PackageType.Id === 2
-      )?.QuantityAvailableforPackageType || 0,
+      productVariations.find((v) => v.PackageType.Id === 2)
+        ?.QuantityAvailableforPackageType || 0,
     digi_reel:
-      originalData.ProductVariations.find(
-        (variation) => variation.PackageType.Id === 3
-      )?.QuantityAvailableforPackageType || 0,
+      productVariations.find((v) => v.PackageType.Id === 3)
+        ?.QuantityAvailableforPackageType || 0,
   };
-  let pricingData = [addHashAndDate(unparsedPricingData, true)];
-  let inventoryData = [addHashAndDate(unparsedQuantityData, true)];
 
   return {
     product_description: originalData.Description.ProductDescription,
@@ -103,66 +99,49 @@ function structurePNs(originalData) {
     video_url: originalData.PrimaryVideoUrl || "",
     status: originalData.ProductStatus.Status,
     resistance:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Resistance"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Resistance")?.ValueText || "",
     resistance_tolerance:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Tolerance"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Tolerance")?.ValueText || "",
     power:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Power (Watts)"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Power (Watts)")?.ValueText ||
+      "",
     composition:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Composition"
-      )?.ValueText || "",
-    features: originalData.Parameters.filter(
-      (param) => param.ParameterText === "Features"
-    ).map((param) => param.ValueText),
+      parameters.find((p) => p.ParameterText === "Composition")?.ValueText ||
+      "",
+    features: parameters
+      .filter((p) => p.ParameterText === "Features")
+      .map((p) => p.ValueText),
     temp_coefficient:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Temperature Coefficient"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Temperature Coefficient")
+        ?.ValueText || "",
     operating_temperature:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Operating Temperature"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Operating Temperature")
+        ?.ValueText || "",
     digikey_case_size:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Package / Case"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Package / Case")?.ValueText ||
+      "",
     case_size:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Supplier Device Package"
-      )?.ValueText || "",
-    ratings: originalData.Parameters.filter(
-      (param) => param.ParameterText === "Ratings"
-    ).map((param) => param.ValueText),
+      parameters.find((p) => p.ParameterText === "Supplier Device Package")
+        ?.ValueText || "",
+    ratings: parameters
+      .filter((p) => p.ParameterText === "Ratings")
+      .map((p) => p.ValueText),
     dimensions:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Size / Dimension"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Size / Dimension")
+        ?.ValueText || "",
     height:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Height - Seated (Max)"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Height - Seated (Max)")
+        ?.ValueText || "",
     terminations_number:
       parseInt(
-        originalData.Parameters.find(
-          (param) => param.ParameterText === "Number of Terminations"
-        )?.ValueText
+        parameters.find((p) => p.ParameterText === "Number of Terminations")
+          ?.ValueText
       ) || 0,
     fail_rate:
-      originalData.Parameters.find(
-        (param) => param.ParameterText === "Failure Rate"
-      )?.ValueText || "",
+      parameters.find((p) => p.ParameterText === "Failure Rate")?.ValueText ||
+      "",
     category: originalData.Category.Name,
-    sub_category:
-      originalData.Category.ChildCategories.length > 0
-        ? originalData.Category.ChildCategories[0].Name
-        : "",
+    sub_category: originalData.Category.ChildCategories[0]?.Name || "",
     series: originalData.Series.Name,
     classifications: {
       reach_status: originalData.Classifications.ReachStatus,
@@ -173,8 +152,8 @@ function structurePNs(originalData) {
         originalData.Classifications.ExportControlClassNumber,
       htsus_code: originalData.Classifications.HtsusCode,
     },
-    pricing: pricingData,
-    inventory: inventoryData,
+    pricing: [addHashAndDate(pricingData, true)],
+    inventory: [addHashAndDate(inventoryData, true)],
   };
 }
 
@@ -272,5 +251,5 @@ async function syncCompetitors() {
 }
 
 syncCompetitors().then((data) => {
-  logExceptOnTest(data);
+  // logExceptOnTest(data)
 });

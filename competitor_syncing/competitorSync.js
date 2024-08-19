@@ -17,7 +17,7 @@ export async function retrieveResistorPNs(accessToken, body) {
   body = body || {
     Keywords: "Resistor",
     Limit: 50,
-    Offset: 121500,
+    Offset: 121900,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -180,7 +180,7 @@ function structurePNs(originalData) {
 
 function compareHashes(newData, oldData) {
   const newHash = newData[0].hash;
-  const oldHash = oldData[oldData.length - 1].hash;
+  const oldHash = oldData[0].hash;
   if (newHash !== oldHash) {
     oldData.push(newData[0]);
   }
@@ -188,21 +188,40 @@ function compareHashes(newData, oldData) {
   return oldData;
 }
 
-function compareQueryToDatabase(queryResults, database) {
-  queryResults.forEach((pn) => {
-    // TODO: replace with mongo find function
-    let oldPNData = database.find((x) => x.part_number === pn.part_number);
+async function compareQueryToDatabase(queryResults, database) {
+  let bulkOp = [];
+  let insertionList = [];
+  for (let part in queryResults) {
+    let pn = queryResults[part];
+    let oldPNData = await database
+      .find({ part_number: pn.part_number })
+      .toArray();
 
-    if (oldPNData) {
+    // If this part number has been entered before
+    if (oldPNData.length === 1) {
+      // compare the pricing and inventory hashes
       // TODO: add this to an array and then run a bulk operation in Mongo
-      oldPNData.pricing = compareHashes(pn.pricing, oldPNData.pricing);
-      oldPNData.inventory = compareHashes(pn.inventory, oldPNData.inventory);
+      let combinedPricing = compareHashes(pn.pricing, oldPNData[0].pricing);
+      let combinedInventory = compareHashes(
+        pn.inventory,
+        oldPNData[0].inventory
+      );
+      bulkOp.push({
+        updateOne: {
+          filter: {
+            part_number: pn.part_number,
+          },
+          update: {
+            $set: { pricing: combinedPricing, inventory: combinedInventory },
+          },
+        },
+      });
     } else {
-      database.push(pn);
+      insertionList.push(pn);
     }
-  });
+  }
 
-  return database;
+  return { bulkOp: bulkOp, insertionList: insertionList };
 }
 
 async function syncCompetitors() {
@@ -214,15 +233,43 @@ async function syncCompetitors() {
 
   //   TODO: replace with mongo instance
   logExceptOnTest("connecting to Mongo instance...");
-  let testDB = await JSON.parse(readFileSync("./temp/testDB.json").toString());
+  // let testDB = await JSON.parse(readFileSync("./temp/testDB.json").toString());
+  const client = new MongoClient(
+    process.env.competitor_database_connection_string
+  );
+  await client.connect();
+  const db = client.db("CompetitorDBInstance");
+  const dkChipResistor = db.collection("dk_chip_resistor");
 
   logExceptOnTest("comparing delta between query and Mongo...");
-  let bulkOperation = compareQueryToDatabase(pns, testDB);
+  let operations = await compareQueryToDatabase(pns, dkChipResistor);
+
+  // console.log(operations.bulkOp);
+
+  let insertionResult;
+  let updateResult;
+  if (operations.insertionList.length > 1) {
+    insertionResult = await dkChipResistor.insertMany(operations.insertionList);
+  } else {
+    logExceptOnTest("no docs to insert...");
+    insertionResult = { insertedCount: 0 };
+  }
+  if (operations.bulkOp.length > 1) {
+    updateResult = await dkChipResistor.bulkWrite(operations.bulkOp);
+  } else {
+    logExceptOnTest("no docs to update...");
+    updateResult = { modifiedCount: 0 };
+  }
 
   // TODO: run bulk upsert operation
-  logExceptOnTest(`completed:\n${0} doc(s) updated \n${0} doc(s) created`);
+  logExceptOnTest(
+    `completed:\n\t${updateResult?.modifiedCount} doc(s) updated \n\t${insertionResult?.insertedCount} doc(s) created`
+  );
+
+  logExceptOnTest("closing client...");
+  await client.close();
 }
 
 syncCompetitors().then((data) => {
-  //   logExceptOnTest(data);
+  logExceptOnTest(data);
 });

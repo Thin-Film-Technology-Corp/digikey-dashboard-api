@@ -226,30 +226,58 @@ async function syncCompetitors() {
 
   // console.log(operations.bulkOp);
 
-  let insertionResult;
-  let updateResult;
-  if (operations.insertionList.length > 1) {
-    insertionResult = await dkChipResistor.insertMany(operations.insertionList);
-  } else {
-    logExceptOnTest("no docs to insert...");
-    insertionResult = { insertedCount: 0 };
-  }
-  if (operations.bulkOp.length > 1) {
-    updateResult = await dkChipResistor.bulkWrite(operations.bulkOp);
-  } else {
-    logExceptOnTest("no docs to update...");
-    updateResult = { modifiedCount: 0 };
+  if (operations.insertionList.length > 0) {
+    await dkChipResistor.insertMany(operations.insertionList);
   }
 
-  // TODO: run bulk upsert operation
+  if (operations.bulkOp.length > 0) {
+    await dkChipResistor.bulkWrite(operations.bulkOp);
+  }
+
   logExceptOnTest(
-    `completed:\n\t${updateResult?.modifiedCount} doc(s) updated \n\t${insertionResult?.insertedCount} doc(s) created`
+    `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
   );
 
   logExceptOnTest("closing client...");
   await client.close();
 }
 
-syncCompetitors().then((data) => {
-  // logExceptOnTest(data)
-});
+// syncCompetitors().then((data) => {
+//   // logExceptOnTest(data)
+// });
+
+async function findDuplicatePartNumbers() {
+  const client = new MongoClient(
+    process.env.competitor_database_connection_string
+  );
+  await client.connect();
+  const db = client.db("CompetitorDBInstance");
+  const dkChipResistor = db.collection("dk_chip_resistor");
+
+  const duplicates = await dkChipResistor
+    .aggregate([
+      {
+        $group: {
+          _id: "$part_number",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $match: {
+          count: { $gt: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          part_number: "$_id",
+          count: 1,
+        },
+      },
+    ])
+    .toArray();
+
+  await client.close();
+
+  return duplicates;
+}

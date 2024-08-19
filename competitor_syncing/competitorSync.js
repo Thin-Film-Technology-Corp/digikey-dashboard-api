@@ -12,7 +12,8 @@ function logExceptOnTest(string) {
   }
 }
 
-export async function retrieveResistorPNs(accessToken, body = null) {
+export async function retrieveResistorPNs(accessToken, body) {
+  body = body || null;
   if (!body) {
     body = {
       Keywords: "Resistor",
@@ -124,7 +125,7 @@ function compareHashes(newData, oldData) {
   return oldData;
 }
 
-async function compareQueryToDatabase(queryResults, database) {
+export async function compareQueryToDatabase(queryResults, database) {
   const partNumbers = queryResults.map((pn) => pn.part_number);
   const existingParts = await database
     .find({ part_number: { $in: partNumbers } })

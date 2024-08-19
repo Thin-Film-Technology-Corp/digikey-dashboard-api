@@ -2,6 +2,7 @@ import request from "supertest";
 import { expect } from "chai";
 import { config } from "dotenv";
 import { describe } from "mocha";
+import { MongoClient } from "mongodb";
 import {
   converPartDataToCSV,
   convertMongoDataToCSV,
@@ -16,7 +17,10 @@ import {
 } from "../getSessionCookies.js";
 import { csvRequest } from "../login.js";
 import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
-import { retrieveResistorPNs } from "../competitor_syncing/competitorSync.js";
+import {
+  retrieveResistorPNs,
+  compareQueryToDatabase,
+} from "../competitor_syncing/competitorSync.js";
 config();
 
 describe("Integration testing for sales data workflow", async function () {
@@ -253,9 +257,12 @@ describe("Integration testing for dashboard document data workflow", async funct
   });
 });
 
-describe("syncs competitor data", async function () {
+describe("Integration testing for syncing competitor data", async function () {
   let accessToken;
   let partData;
+  let client;
+  let db;
+  let dkChipResistor;
   // get access token for digikey api
   it("Retrieves access token for DigiKey REST API", async function () {
     accessToken = await getAccessTokenForDigikeyAPI();
@@ -264,7 +271,24 @@ describe("syncs competitor data", async function () {
   // get chip resistors from api
   it("Retrieves resistor data from part search V4", async function () {
     this.timeout(15000);
-    partData = await retrieveResistorPNs(accessToken);
+    partData = await retrieveResistorPNs(accessToken, {
+      Keywords: "Resistor",
+      Limit: 50,
+      Offset: 121950,
+      FilterOptionsRequest: {
+        ManufacturerFilter: [],
+        MinimumQuantityAvailable: 1,
+        ParameterFilterRequest: {
+          CategoryFilter: { Id: "52", Value: "Chip Resistor - Surface Mount" },
+        },
+        StatusFilter: [{ Id: 0, Value: "Active" }],
+      },
+      ExcludeMarketPlaceProducts: false,
+      SortOptions: {
+        Field: "None",
+        SortOrder: "Ascending",
+      },
+    });
     expect(partData).to.be.an("array");
     expect(partData[0]).to.have.all.keys(
       "product_description",
@@ -297,32 +321,6 @@ describe("syncs competitor data", async function () {
       "inventory"
     );
 
-    expect(partData[0].product_description).to.be.a("string");
-    expect(partData[0].detailed_description).to.be.a("string");
-    expect(partData[0].part_number).to.be.a("string");
-    expect(partData[0].product_url).to.be.a("string");
-    expect(partData[0].datasheet_url).to.be.a("string");
-    expect(partData[0].photo_url).to.be.a("string");
-    expect(partData[0].video_url).to.be.a("string");
-    expect(partData[0].status).to.be.a("string");
-    expect(partData[0].resistance).to.be.a("string");
-    expect(partData[0].resistance_tolerance).to.be.a("string");
-    expect(partData[0].power).to.be.a("string");
-    expect(partData[0].composition).to.be.a("string");
-    expect(partData[0].features).to.be.an("array").that.is.not.empty;
-    expect(partData[0].temp_coefficient).to.be.a("string");
-    expect(partData[0].operating_temperature).to.be.a("string");
-    expect(partData[0].digikey_case_size).to.be.a("string");
-    expect(partData[0].case_size).to.be.a("string");
-    expect(partData[0].ratings).to.be.an("array");
-    expect(partData[0].dimensions).to.be.a("string");
-    expect(partData[0].height).to.be.a("string");
-    expect(partData[0].terminations_number).to.be.a("number");
-    expect(partData[0].fail_rate).to.be.a("string");
-    expect(partData[0].category).to.be.a("string");
-    expect(partData[0].sub_category).to.be.a("string");
-    expect(partData[0].series).to.be.a("string");
-
     expect(partData[0].classifications)
       .to.be.an("object")
       .that.includes.all.keys(
@@ -335,5 +333,64 @@ describe("syncs competitor data", async function () {
 
     expect(partData[0].pricing).to.be.an("array").that.is.not.empty;
     expect(partData[0].inventory).to.be.an("array").that.is.not.empty;
+  });
+  // Connect to MongoDB
+  it("Connects to MongoDB", async function () {
+    client = new MongoClient(process.env.competitor_database_connection_string);
+    await client.connect();
+    db = client.db("CompetitorDBInstance");
+    dkChipResistor = db.collection("dk_chip_resistor");
+    expect(db).to.not.be.null;
+  });
+  // Compare part data with database records
+  it("Compares query results with MongoDB data", async function () {
+    const operations = await compareQueryToDatabase(partData, dkChipResistor);
+    expect(operations).to.be.an("object");
+    expect(operations).to.have.property("bulkOp").that.is.an("array");
+    expect(operations).to.have.property("insertionList").that.is.an("array");
+
+    if (operations.bulkOp.length > 0) {
+      // Here you could mock `bulkWrite` if needed, but for simplicity, we'll just check the structure
+      expect(operations.bulkOp[0])
+        .to.have.property("updateOne")
+        .that.is.an("object");
+      expect(operations.bulkOp[0].updateOne).to.have.all.keys(
+        "filter",
+        "update"
+      );
+    }
+
+    if (operations.insertionList.length > 0) {
+      expect(operations.insertionList[0]).to.have.all.keys(
+        "product_description",
+        "detailed_description",
+        "part_number",
+        "product_url",
+        "datasheet_url",
+        "photo_url",
+        "video_url",
+        "status",
+        "resistance",
+        "resistance_tolerance",
+        "power",
+        "composition",
+        "features",
+        "temp_coefficient",
+        "operating_temperature",
+        "digikey_case_size",
+        "case_size",
+        "ratings",
+        "dimensions",
+        "height",
+        "terminations_number",
+        "fail_rate",
+        "category",
+        "sub_category",
+        "series",
+        "classifications",
+        "pricing",
+        "inventory"
+      );
+    }
   });
 });

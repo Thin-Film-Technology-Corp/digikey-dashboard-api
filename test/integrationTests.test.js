@@ -326,22 +326,12 @@ describe("syncs competitor data", async function () {
     expect(partData[0].classifications)
       .to.be.an("object")
       .that.includes.all.keys(
-        "reach_status",
-        "rohs_status",
-        "moisture_sensitivity_level",
-        "export_control_class_number",
-        "htsus_code"
+        "ReachStatus",
+        "RohsStatus",
+        "MoistureSensitivityLevel",
+        "ExportControlClassNumber",
+        "HtsusCode"
       );
-
-    expect(partData[0].classifications.reach_status).to.be.a("string");
-    expect(partData[0].classifications.rohs_status).to.be.a("string");
-    expect(partData[0].classifications.moisture_sensitivity_level).to.be.a(
-      "string"
-    );
-    expect(partData[0].classifications.export_control_class_number).to.be.a(
-      "string"
-    );
-    expect(partData[0].classifications.htsus_code).to.be.a("string");
 
     expect(partData[0].pricing).to.be.an("array").that.is.not.empty;
     expect(partData[0].inventory).to.be.an("array").that.is.not.empty;

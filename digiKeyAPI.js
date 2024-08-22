@@ -48,13 +48,24 @@ export async function getAllPartsInDigikeySearchV4(accessToken, body, allData) {
   if (response.ok) {
     let data = await response.json();
     let total = data.ProductsCount;
+    let bodyOffsetCopy = body.Offset;
+    batchSize = batchSize || total - body.Offset;
 
-    if (body.Offset <= total) {
-      body.Offset = body.Offset += 50;
+    console.log(
+      `batch size: ${batchSize}\noffset + batchsize: ${body.Offset + batchSize}`
+    );
+
+    if (bodyOffsetCopy <= body.Offset + batchSize) {
+      bodyOffsetCopy = bodyOffsetCopy += body.Limit;
       data.Products.forEach((product) => {
         allData.push(product);
       });
-      return getAllPartsInDigikeySearchV4(accessToken, body, allData);
+      return getAllPartsInDigikeySearchV4(
+        accessToken,
+        body,
+        allData,
+        batchSize
+      );
     } else {
       return allData;
     }
@@ -64,6 +75,7 @@ export async function getAllPartsInDigikeySearchV4(accessToken, body, allData) {
         response.statusText
       } \n${await response.text()}`
     );
+    return allData;
   }
 }
 

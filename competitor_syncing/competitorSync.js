@@ -12,29 +12,160 @@ function logExceptOnTest(string) {
   }
 }
 
-export async function retrieveResistorPNs(accessToken, body) {
-  body = body || null;
-  if (!body) {
-    body = {
-      Keywords: "Resistor",
-      Limit: 50,
-      Offset: 121800,
-      FilterOptionsRequest: {
-        ManufacturerFilter: [],
-        MinimumQuantityAvailable: 1,
-        ParameterFilterRequest: {
-          CategoryFilter: { Id: "52", Value: "Chip Resistor - Surface Mount" },
-        },
-        StatusFilter: [{ Id: 0, Value: "Active" }],
-      },
-      ExcludeMarketPlaceProducts: false,
-      SortOptions: {
-        Field: "None",
-        SortOrder: "Ascending",
-      },
-    };
+// do fetch until you get response.ok
+async function fetchWithRetries(url, options, retries = 3) {
+  while (retries > 0) {
+    let response = await fetch(url, options);
+    if (response.ok) {
+      return await response.json();
+    }
+    retries--;
   }
-  const pns = await getAllPartsInDigikeySearchV4(accessToken, body);
+  throw new Error(`there was an error fetching after three retries`);
+}
+
+// return an array of the offsets that need to be redone
+function validatePNs(markers, initialOffset, total, limit) {
+  let redoArray = [];
+  for (let i = initialOffset; i < total; i += limit) {
+    if (!markers.includes(i)) {
+      redoArray.push(i);
+    }
+  }
+  return redoArray;
+}
+
+// use array of offsets to retrieve missing information
+async function remediatePNs(redos, body, accessToken) {
+  let retArr = [];
+  let failCount = 0;
+  // run fetch on each of the redos in the array, using the value as the offset
+  for (let redo in redos) {
+    try {
+      body.Offset = redos[redo];
+      let data = await fetchWithRetries(
+        "https://api.digikey.com/products/v4/search/keyword",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-DIGIKEY-Client-Id": process.env.clientId,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify(body),
+        }
+      );
+      retArr.push(...data.Products);
+    } catch (error) {
+      failCount++;
+      if (failCount > 4) {
+        throw new Error(`5 failures occurred for part number remdiation`);
+      }
+      console.error(
+        `There was a problem with the request for part number remidiation\n\ttotal failures: ${failCount}`
+      );
+    }
+  }
+  return retArr;
+}
+
+// return all of the chip resistor product data to the structure pn function
+export async function retrieveResistorPNs(accessToken, body) {
+  let total;
+  let promiseArray = [];
+  let markers = [];
+
+  body = body || {
+    Keywords: "Resistor",
+    Limit: 50,
+    Offset: 121800,
+    FilterOptionsRequest: {
+      ManufacturerFilter: [],
+      MinimumQuantityAvailable: 1,
+      ParameterFilterRequest: {
+        CategoryFilter: { Id: "52", Value: "Chip Resistor - Surface Mount" },
+      },
+      StatusFilter: [{ Id: 0, Value: "Active" }],
+    },
+    ExcludeMarketPlaceProducts: false,
+    SortOptions: {
+      Field: "None",
+      SortOrder: "Ascending",
+    },
+  };
+
+  const initialOffset = structuredClone(body.Offset);
+
+  // send one fetch to get product count
+  let response = await fetch(
+    "https://api.digikey.com/products/v4/search/keyword",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "X-DIGIKEY-Client-Id": process.env.clientId,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+  if (response.ok) {
+    let data = await response.json();
+    total = data.ProductsCount;
+  } else {
+    console.log("There was an error retrieving the product count");
+  }
+
+  const numberOfBatches = total / body.Limit - body.Offset / body.Limit;
+
+  // loop over batches per core num
+  // create promises for each batch
+  for (let i = 0; i < numberOfBatches; i++) {
+    try {
+      promiseArray.push({
+        index: body.Offset,
+        data: fetch("https://api.digikey.com/products/v4/search/keyword", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-DIGIKEY-Client-Id": process.env.clientId,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      });
+      // markers array is added to after promise is added to array
+      markers.push(body.Offset);
+      body.Offset += body.Limit;
+    } catch (error) {
+      console.error(
+        `There was an error pushing promise for index ${body.Offset}`
+      );
+      body.Offset += body.Limit;
+    }
+  }
+
+  const pns = [];
+  promiseArray = await Promise.all(
+    promiseArray.map((r) =>
+      r.data.then((res) =>
+        res.json().then((d) => {
+          pns.push(...d.Products);
+          return { ...d, index: r.index };
+        })
+      )
+    )
+  );
+
+  // Validate that we got all of our information
+  // Check if length matches number of batches
+  if (pns.length !== Math.round(numberOfBatches * 50)) {
+    logExceptOnTest(`pns require validation`);
+    let redos = validatePNs(markers, initialOffset, total, body.Limit);
+    let additionalPNs = await remediatePNs(redos, body, accessToken);
+    pns.push(...additionalPNs);
+  }
+
   return pns.map(structurePNs);
 }
 
@@ -161,12 +292,14 @@ export async function compareQueryToDatabase(queryResults, database) {
   return { bulkOp, insertionList };
 }
 
-async function syncCompetitors() {
+export async function syncCompetitors() {
   logExceptOnTest("getting access token for digikey...");
   const accessToken = await getAccessTokenForDigikeyAPI();
 
   logExceptOnTest("retrieving all Chip Resistors from Digikey...");
   const pns = await retrieveResistorPNs(accessToken);
+
+  // console.log(pns.length);
 
   logExceptOnTest("connecting to Mongo instance...");
   const client = new MongoClient(
@@ -179,17 +312,17 @@ async function syncCompetitors() {
   logExceptOnTest("comparing delta between query and Mongo...");
   const operations = await compareQueryToDatabase(pns, dkChipResistor);
 
-  if (operations.insertionList.length > 0) {
-    await dkChipResistor.insertMany(operations.insertionList);
-  }
+  // if (operations.insertionList.length > 0) {
+  //   await dkChipResistor.insertMany(operations.insertionList);
+  // }
 
-  if (operations.bulkOp.length > 0) {
-    await dkChipResistor.bulkWrite(operations.bulkOp);
-  }
+  // if (operations.bulkOp.length > 0) {
+  //   await dkChipResistor.bulkWrite(operations.bulkOp);
+  // }
 
-  logExceptOnTest(
-    `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
-  );
+  // logExceptOnTest(
+  //   `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
+  // );
 
   logExceptOnTest("closing client...");
   await client.close();

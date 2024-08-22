@@ -15,6 +15,7 @@ import {
   flattenPartData,
 } from "./mongoOperation.js";
 import { getAllPartsInDigikeySearchV4 } from "./digiKeyAPI.js";
+import { syncCompetitors } from "./competitor_syncing/competitorSync.js";
 
 const app = express();
 
@@ -189,6 +190,16 @@ app.patch("/sync_mongo_data", authorize, async (req, res) => {
       `Error while completing manual refresh of Mongo data:: ${error} \n${error.stack}`
     );
     return res.status(500).end("Error syncing data!");
+  }
+});
+
+app.patch("/sync_comp_db/chip_resistor", authorize, async (req, res) => {
+  try {
+    await syncCompetitors();
+    return res.status(200).end();
+  } catch (error) {
+    console.log(error);
+    return res.status(500).end();
   }
 });
 

@@ -39,7 +39,7 @@ async function fetchWithRetries(url, options, retries = 3) {
 function validatePNs(markers, initialOffset, total, limit) {
   let redoArray = [];
   for (let i = initialOffset; i < total; i += limit) {
-    if (!markers.includes(i)) {
+    if (markers.get(i) === false) {
       redoArray.push(i);
     }
   }
@@ -97,7 +97,7 @@ async function retrieveBurstLimit(accessToken, body, burstLimit, markers) {
         }),
       });
       // markers array is added to after promise is added to array
-      markers.push(body.Offset);
+      markers.set(body.Offset, true);
       body.Offset += body.Limit;
     } catch (error) {
       console.error(
@@ -114,12 +114,13 @@ async function retrieveBurstLimit(accessToken, body, burstLimit, markers) {
 export async function retrieveResistorPNs(accessToken, body) {
   let total;
   let promiseArray = [];
-  let markers = [];
+  let markers = new Map();
   let redos = [];
   // 240 requests within time frame
-  let burstLimit = 240;
+  let burstLimit = 239;
   // 15 second reset
   let burstReset = 15000;
+
   body = body || {
     Keywords: "Resistor",
     Limit: 50,
@@ -173,7 +174,7 @@ export async function retrieveResistorPNs(accessToken, body) {
     );
 
     promiseArray.push(...burstLimitData[0]);
-    markers.push(...burstLimitData[1]);
+    markers = burstLimitData[1];
   }
 
   const pns = [];
@@ -182,7 +183,8 @@ export async function retrieveResistorPNs(accessToken, body) {
       r.data
         .then((res) => {
           if (!res.ok) {
-            // remove the index from markers
+            // set marker to false for revision
+            markers.set(r.index, false);
             throw new Error(
               `promise for part numbering failed!\n${res.status}`
             );
@@ -195,15 +197,19 @@ export async function retrieveResistorPNs(accessToken, body) {
         })
         .catch((error) => {
           console.error("Error processing request:", error);
-          // remove the index from markers
+          // set marker to false for revision
+          markers.set(r.index, false);
           // Return a default value or handle the error in a way that doesn't break the Promise.all
           // return { error: true, index: r.index, message: error.message };
         })
     )
   );
   // Validate that we got all of our information
-  // Check if length matches number of batches
-  if (pns.length !== Math.round(numberOfBatches * 50)) {
+  // Check if length matches number of batches or if any marker is set to negative
+  if (
+    pns.length !== Math.round(numberOfBatches * 50) ||
+    [...markers.values()].includes(false)
+  ) {
     logExceptOnTest(`pns require validation`);
     let validatedRedos = validatePNs(markers, initialOffset, total, body.Limit);
     redos.push(...validatedRedos);

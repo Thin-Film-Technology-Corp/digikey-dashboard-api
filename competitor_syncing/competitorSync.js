@@ -90,7 +90,7 @@ export async function retrieveResistorPNs(accessToken, body) {
   body = body || {
     Keywords: "Resistor",
     Limit: 50,
-    Offset: 115200,
+    Offset: 120200,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -376,12 +376,14 @@ function processPartNumbers(queryResults, existingPartsMap) {
   queryResults.forEach((pn) => {
     const oldPNData = existingPartsMap.get(pn.part_number);
     if (oldPNData) {
-      // add to
-      const combinedPricing = compareHashes(pn.pricing, oldPNData.pricing);
-      const combinedInventory = compareHashes(
-        pn.inventory,
-        oldPNData.inventory
-      );
+      let combinedPricing = pn.pricing;
+      let combinedInventory = pn.inventory;
+      if (oldPNData.pricing) {
+        combinedPricing = compareHashes(pn.pricing, oldPNData.pricing);
+      }
+      if (oldPNData.inventory) {
+        combinedInventory = compareHashes(pn.inventory, oldPNData.inventory);
+      }
       bulkOp.push({
         updateOne: {
           filter: { part_number: pn.part_number },
@@ -408,7 +410,13 @@ export async function syncCompetitors(numSyncs) {
     logExceptOnTest("retrieving all Chip Resistors from Digikey...");
     const pns = await retrieveResistorPNs(accessToken);
 
-    // console.log(pns.length);
+    console.log(pns.length);
+
+    if (pns.length < 1) {
+      console.log(
+        `no PNs were returned from retrieve resistor pn function: ${pns}`
+      );
+    }
 
     logExceptOnTest("connecting to Mongo instance...");
     const client = new MongoClient(
@@ -420,6 +428,20 @@ export async function syncCompetitors(numSyncs) {
 
     logExceptOnTest("comparing delta between query and Mongo...");
     const operations = await compareQueryToDatabase(pns, dkChipResistor, 1);
+
+    console.log(operations);
+
+    if (operations.insertionList.length > 0) {
+      await dkChipResistor.insertMany(operations.insertionList);
+    }
+
+    if (operations.bulkOp.length > 0) {
+      await dkChipResistor.bulkWrite(operations.bulkOp);
+    }
+
+    logExceptOnTest(
+      `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
+    );
 
     logExceptOnTest("closing client...");
     await client.close();

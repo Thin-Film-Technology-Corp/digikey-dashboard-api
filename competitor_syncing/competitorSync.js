@@ -80,17 +80,50 @@ async function remediatePNs(redos, body, accessToken) {
   return retArr;
 }
 
+async function retrieveBurstLimit(accessToken, body, burstLimit, markers) {
+  let promiseArray = [];
+  for (let i = 0; i < burstLimit; i++) {
+    try {
+      promiseArray.push({
+        index: body.Offset,
+        data: fetch("https://api.digikey.com/products/v4/search/keyword", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-DIGIKEY-Client-Id": process.env.clientId,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      });
+      // markers array is added to after promise is added to array
+      markers.push(body.Offset);
+      body.Offset += body.Limit;
+    } catch (error) {
+      console.error(
+        `There was an error pushing promise for index ${body.Offset}\n
+        ${error}`
+      );
+      body.Offset += body.Limit;
+    }
+  }
+  return [promiseArray, markers];
+}
+
 // return all of the chip resistor product data to the structure pn function
 export async function retrieveResistorPNs(accessToken, body) {
   let total;
   let promiseArray = [];
   let markers = [];
   let redos = [];
-
+  // 240 requests within time frame
+  let burstLimit = 240;
+  // 15 second reset
+  let burstReset = 15000;
   body = body || {
     Keywords: "Resistor",
     Limit: 50,
-    Offset: 120200,
+    Offset: 115200,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -129,32 +162,18 @@ export async function retrieveResistorPNs(accessToken, body) {
   }
 
   const numberOfBatches = total / body.Limit - body.Offset / body.Limit;
+  const numberOfBursts = Math.round(numberOfBatches / (burstLimit - 1));
 
-  // loop over batches per core num
-  // create promises for each batch
-  for (let i = 0; i < numberOfBatches; i++) {
-    try {
-      promiseArray.push({
-        index: body.Offset,
-        data: fetch("https://api.digikey.com/products/v4/search/keyword", {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "X-DIGIKEY-Client-Id": process.env.clientId,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      });
-      // markers array is added to after promise is added to array
-      markers.push(body.Offset);
-      body.Offset += body.Limit;
-    } catch (error) {
-      console.error(
-        `There was an error pushing promise for index ${body.Offset}`
-      );
-      body.Offset += body.Limit;
-    }
+  for (let i = 0; i < numberOfBursts; i++) {
+    let burstLimitData = await retrieveBurstLimit(
+      accessToken,
+      body,
+      burstLimit,
+      markers
+    );
+
+    promiseArray.push(...burstLimitData[0]);
+    markers.push(...burstLimitData[1]);
   }
 
   const pns = [];
@@ -163,6 +182,7 @@ export async function retrieveResistorPNs(accessToken, body) {
       r.data
         .then((res) => {
           if (!res.ok) {
+            // remove the index from markers
             throw new Error(
               `promise for part numbering failed!\n${res.status}`
             );
@@ -175,6 +195,7 @@ export async function retrieveResistorPNs(accessToken, body) {
         })
         .catch((error) => {
           console.error("Error processing request:", error);
+          // remove the index from markers
           // Return a default value or handle the error in a way that doesn't break the Promise.all
           // return { error: true, index: r.index, message: error.message };
         })
@@ -376,22 +397,30 @@ function processPartNumbers(queryResults, existingPartsMap) {
   queryResults.forEach((pn) => {
     const oldPNData = existingPartsMap.get(pn.part_number);
     if (oldPNData) {
-      let combinedPricing = pn.pricing;
-      let combinedInventory = pn.inventory;
+      let combinedPricing;
+      let combinedInventory;
       if (oldPNData.pricing) {
         combinedPricing = compareHashes(pn.pricing, oldPNData.pricing);
       }
       if (oldPNData.inventory) {
         combinedInventory = compareHashes(pn.inventory, oldPNData.inventory);
       }
-      bulkOp.push({
-        updateOne: {
-          filter: { part_number: pn.part_number },
-          update: {
-            $set: { pricing: combinedPricing, inventory: combinedInventory },
+
+      // If the comparison results in another addition to that pn, then update
+      // Otherwise do nothing
+      if (
+        combinedInventory.length > oldPNData.inventory ||
+        combinedPricing.length > oldPNData.pricing
+      ) {
+        bulkOp.push({
+          updateOne: {
+            filter: { part_number: pn.part_number },
+            update: {
+              $set: { pricing: combinedPricing, inventory: combinedInventory },
+            },
           },
-        },
-      });
+        });
+      }
     } else {
       insertionList.push(pn);
     }
@@ -427,9 +456,7 @@ export async function syncCompetitors(numSyncs) {
     const dkChipResistor = db.collection("dk_chip_resistor");
 
     logExceptOnTest("comparing delta between query and Mongo...");
-    const operations = await compareQueryToDatabase(pns, dkChipResistor, 1);
-
-    console.log(operations);
+    const operations = await compareQueryToDatabase(pns, dkChipResistor, 4);
 
     if (operations.insertionList.length > 0) {
       await dkChipResistor.insertMany(operations.insertionList);

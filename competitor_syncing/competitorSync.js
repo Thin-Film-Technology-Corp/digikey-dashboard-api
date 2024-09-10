@@ -47,42 +47,69 @@ function validatePNs(markers, initialOffset, total, limit) {
 }
 
 // use array of offsets to retrieve missing information
-async function remediatePNs(redos, body, accessToken) {
+async function remediatePNs(redos, body, accessToken, burstLimit, burstReset) {
   let retArr = [];
   let failCount = 0;
-  // run fetch on each of the redos in the array, using the value as the offset
-  for (let redo in redos) {
-    try {
-      body.Offset = redos[redo];
-      let data = await fetchWithRetries(
-        "https://api.digikey.com/products/v4/search/keyword",
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "X-DIGIKEY-Client-Id": process.env.clientId,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          body: JSON.stringify(body),
+  let bursts = 1;
+  let index = 0;
+
+  // Get amount of bursts
+  if (redos.length / body.limit > burstLimit) {
+    bursts = redos.length / body.limit / burstLimit;
+  }
+  console.log(`burts: ${bursts}`);
+
+  for (let i = 0; i < bursts; i++) {
+    logExceptOnTest(
+      `Remediation #${i} waiting ${
+        burstReset / 1000
+      } seconds before attempting...`
+    );
+    await new Promise((resolve) => setTimeout(resolve, burstReset + 1000));
+    index = i * burstLimit;
+    let redoSlice = redos.slice(index, index + burstLimit);
+
+    for (let redo in redoSlice) {
+      try {
+        body.Offset = redos[redo];
+        let data = await fetchWithRetries(
+          "https://api.digikey.com/products/v4/search/keyword",
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "X-DIGIKEY-Client-Id": process.env.clientId,
+              "Content-Type": "application/json",
+            },
+            method: "POST",
+            body: JSON.stringify(body),
+          }
+        );
+        retArr.push(...data.Products);
+      } catch (error) {
+        failCount++;
+        if (failCount > 4) {
+          throw new Error(`5 failures occurred for part number remdiation`);
         }
-      );
-      retArr.push(...data.Products);
-    } catch (error) {
-      failCount++;
-      if (failCount > 4) {
-        throw new Error(`5 failures occurred for part number remdiation`);
+        console.error(
+          `There was a problem with the request for part number remidiation\n\ttotal failures: ${failCount} \n${await error.text()}`
+        );
       }
-      console.error(
-        `There was a problem with the request for part number remidiation\n\ttotal failures: ${failCount}`
-      );
     }
   }
+  // Wait for burstreset
+  // If the total redos is greater than the burst limit, divide it into parts
+
+  // run fetch on each of the redos in the array, using the value as the offset
+
   return retArr;
 }
 
 async function retrieveBurstLimit(accessToken, body, burstLimit, markers) {
   let promiseArray = [];
+  markers = markers || new Map([]);
   for (let i = 0; i < burstLimit; i++) {
+    console.log(`Burst index ${i} / ${burstLimit}`);
+
     try {
       promiseArray.push({
         index: body.Offset,
@@ -111,20 +138,25 @@ async function retrieveBurstLimit(accessToken, body, burstLimit, markers) {
 }
 
 // return all of the chip resistor product data to the structure pn function
-export async function retrieveResistorPNs(accessToken, body) {
+export async function retrieveResistorPNs(
+  accessToken,
+  body,
+  burstReset,
+  burstLimit
+) {
   let total;
   let promiseArray = [];
   let markers = new Map();
   let redos = [];
   // 240 requests within time frame
-  let burstLimit = 239;
+  burstLimit = burstLimit || 238;
   // 15 second reset
-  let burstReset = 15000;
+  burstReset = burstReset || 15000;
 
   body = body || {
     Keywords: "Resistor",
     Limit: 50,
-    Offset: 115200,
+    Offset: 105200,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -163,9 +195,17 @@ export async function retrieveResistorPNs(accessToken, body) {
   }
 
   const numberOfBatches = total / body.Limit - body.Offset / body.Limit;
-  const numberOfBursts = Math.round(numberOfBatches / (burstLimit - 1));
+  const numberOfBursts = Math.ceil(numberOfBatches / burstLimit);
+  console.log(`number of bursts: ${numberOfBursts}`);
 
   for (let i = 0; i < numberOfBursts; i++) {
+    if (i > 0) {
+      console.log(`${burstReset / 1000} second timeout...`);
+
+      await new Promise((resolve) => setTimeout(resolve, burstReset + 1000));
+    }
+    console.log(`Burst ${i}:`);
+
     let burstLimitData = await retrieveBurstLimit(
       accessToken,
       body,
@@ -176,6 +216,8 @@ export async function retrieveResistorPNs(accessToken, body) {
     promiseArray.push(...burstLimitData[0]);
     markers = burstLimitData[1];
   }
+
+  // console.log(promiseArray);
 
   const pns = [];
   promiseArray = await Promise.all(
@@ -206,15 +248,36 @@ export async function retrieveResistorPNs(accessToken, body) {
   );
   // Validate that we got all of our information
   // Check if length matches number of batches or if any marker is set to negative
+
+  console.log(
+    `PNs length: ${pns.length}\nExpected length: ${
+      total - initialOffset
+    }\nDoes markers include false values: ${[...markers.values()].includes(
+      false
+    )}`
+  );
+
   if (
-    pns.length !== Math.round(numberOfBatches * 50) ||
+    pns.length !== total - initialOffset ||
     [...markers.values()].includes(false)
   ) {
     logExceptOnTest(`pns require validation`);
     let validatedRedos = validatePNs(markers, initialOffset, total, body.Limit);
     redos.push(...validatedRedos);
-    logExceptOnTest(`${redos.length} batches require another attempt`);
-    let additionalPNs = await remediatePNs(redos, body, accessToken);
+
+    let additionalPNs = [];
+    try {
+      logExceptOnTest(`${redos.length} batches require another attempt`);
+      additionalPNs = await remediatePNs(
+        redos,
+        body,
+        accessToken,
+        burstLimit,
+        burstReset
+      );
+    } catch (error) {
+      console.error(error);
+    }
     pns.push(...additionalPNs);
     logExceptOnTest(`pushed ${additionalPNs.length} redone parts into pns`);
   }
@@ -438,47 +501,59 @@ function processPartNumbers(queryResults, existingPartsMap) {
 // Connects to mongoDB and makes the additions
 export async function syncCompetitors(numSyncs) {
   numSyncs = numSyncs || 1;
-  for (let i = 0; i < numSyncs; i++) {
-    logExceptOnTest("getting access token for digikey...");
-    const accessToken = await getAccessTokenForDigikeyAPI();
-
-    logExceptOnTest("retrieving all Chip Resistors from Digikey...");
-    const pns = await retrieveResistorPNs(accessToken);
-
-    console.log(pns.length);
-
-    if (pns.length < 1) {
-      console.log(
-        `no PNs were returned from retrieve resistor pn function: ${pns}`
-      );
+  logExceptOnTest("getting access tokens for digikey...");
+  // up to 5 APIs om use at once
+  const credentialArray = [
+    { id: process.env?.db_sync_01_id, secret: process.env?.db_sync_01_secret },
+    { id: process.env?.db_sync_02_id, secret: process.env?.db_sync_02_secret },
+    { id: process.env?.db_sync_03_id, secret: process.env?.db_sync_03_secret },
+    { id: process.env?.db_sync_04_id, secret: process.env?.db_sync_04_secret },
+    { id: process.env?.db_sync_05_id, secret: process.env?.db_sync_05_secret },
+  ];
+  for (let credential in credentialArray) {
+    let cred = credentialArray[credential];
+    if (cred.id && cred.secret) {
+      cred.accessToken = await getAccessTokenForDigikeyAPI();
     }
-
-    logExceptOnTest("connecting to Mongo instance...");
-    const client = new MongoClient(
-      process.env.competitor_database_connection_string
-    );
-    await client.connect();
-    const db = client.db("CompetitorDBInstance");
-    const dkChipResistor = db.collection("dk_chip_resistor");
-
-    logExceptOnTest("comparing delta between query and Mongo...");
-    const operations = await compareQueryToDatabase(pns, dkChipResistor, 4);
-
-    if (operations.insertionList.length > 0) {
-      await dkChipResistor.insertMany(operations.insertionList);
-    }
-
-    if (operations.bulkOp.length > 0) {
-      await dkChipResistor.bulkWrite(operations.bulkOp);
-    }
-
-    logExceptOnTest(
-      `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
-    );
-
-    logExceptOnTest("closing client...");
-    await client.close();
   }
+  const accessToken = await getAccessTokenForDigikeyAPI();
+
+  logExceptOnTest("retrieving all Chip Resistors from Digikey...");
+  const pns = await retrieveResistorPNs(accessToken);
+
+  console.log(pns.length);
+
+  if (pns.length < 1) {
+    console.log(
+      `no PNs were returned from retrieve resistor pn function: ${pns}`
+    );
+  }
+
+  logExceptOnTest("connecting to Mongo instance...");
+  const client = new MongoClient(
+    process.env.competitor_database_connection_string
+  );
+  await client.connect();
+  const db = client.db("CompetitorDBInstance");
+  const dkChipResistor = db.collection("dk_chip_resistor");
+
+  logExceptOnTest("comparing delta between query and Mongo...");
+  const operations = await compareQueryToDatabase(pns, dkChipResistor, 4);
+
+  if (operations.insertionList.length > 0) {
+    await dkChipResistor.insertMany(operations.insertionList);
+  }
+
+  if (operations.bulkOp.length > 0) {
+    await dkChipResistor.bulkWrite(operations.bulkOp);
+  }
+
+  logExceptOnTest(
+    `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
+  );
+
+  logExceptOnTest("closing client...");
+  await client.close();
 }
 
 async function findDuplicatePartNumbers() {
@@ -509,7 +584,7 @@ if (!isMainThread) {
   parentPort.postMessage(result);
 } else {
   // TODO: handle 429 codes (30 second timeout)
-  syncCompetitors(1).then((data) => {
+  syncCompetitors().then((data) => {
     // logExceptOnTest(data)
   });
 }

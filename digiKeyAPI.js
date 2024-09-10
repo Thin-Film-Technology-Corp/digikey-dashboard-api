@@ -79,10 +79,12 @@ export async function getAllPartsInDigikeySearchV4(accessToken, body, allData) {
   }
 }
 
-export async function getAccessTokenForDigikeyAPI() {
+export async function getAccessTokenForDigikeyAPI(clientId, clientSecret) {
+  clientId = clientId || process.env.clientId;
+  clientSecret = clientSecret || process.env.clientSecret;
   const authCodeURL = `https://api.digikey.com/v1/oauth2/token`;
   let formData = encodeURI(
-    `client_id=${process.env.clientId}&client_secret=${process.env.clientSecret}&grant_type=client_credentials`
+    `client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`
   );
   let response = await fetch(authCodeURL, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },

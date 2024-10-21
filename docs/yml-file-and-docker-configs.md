@@ -10,8 +10,8 @@ description: >-
 
 The workflow automates the process of building and deploying the Node.js application. It consists of two main jobs:
 
-* **Build**: Checks out the code, sets up Node.js, installs dependencies, builds the application, and creates an artifact for deployment.
-* **Deploy**: Downloads the build artifact, installs necessary dependencies, logs into Azure, and deploys the application to Azure Web App.
+- **Build**: Checks out the code, sets up Node.js, installs dependencies, builds the application, and creates an artifact for deployment.
+- **Deploy**: Downloads the build artifact, installs necessary dependencies, logs into Azure, and deploys the application to Azure Web App.
 
 ### Workflow Trigger
 
@@ -25,10 +25,10 @@ on:
   workflow_dispatch:
 ```
 
-* `name`: The name of the workflow.
-* `on`:
-  * `push`: The workflow runs when changes are pushed to the `main` branch.
-  * `workflow_dispatch`: Allows manual triggering of the workflow.
+- `name`: The name of the workflow.
+- `on`:
+  - `push`: The workflow runs when changes are pushed to the `main` branch.
+  - `workflow_dispatch`: Allows manual triggering of the workflow.
 
 ### Jobs
 
@@ -40,9 +40,9 @@ jobs:
     runs-on: ubuntu-latest
 ```
 
-* `jobs`: Defines the jobs for the workflow.
-* `build`: The build job.
-* `runs-on`: Specifies the runner environment (Ubuntu).
+- `jobs`: Defines the jobs for the workflow.
+- `build`: The build job.
+- `runs-on`: Specifies the runner environment (Ubuntu).
 
 **Steps**
 
@@ -53,7 +53,8 @@ jobs:
       - uses: actions/checkout@v4
     ```
 
-    * Uses the `actions/checkout@v4` action to check out the code from the repository.
+    - Uses the `actions/checkout@v4` action to check out the code from the repository.
+
 2.  **Set Up Node.js**
 
     ```yaml
@@ -63,7 +64,8 @@ jobs:
           node-version: "18.x"
     ```
 
-    * Uses the `actions/setup-node@v3` action to set up Node.js version 18.x.
+    - Uses the `actions/setup-node@v3` action to set up Node.js version 18.x.
+
 3.  **Install Node.js Dependencies and Build**
 
     ```yaml
@@ -73,8 +75,9 @@ jobs:
           npm run postinstall
     ```
 
-    * Runs `npm install` to install project dependencies.
-    * Runs `npm run postinstall` to execute any post-install scripts defined in `package.json`.
+    - Runs `npm install` to install project dependencies.
+    - Runs `npm run postinstall` to execute any post-install scripts defined in `package.json`.
+
 4.  **Zip Artifact for Deployment**
 
     ```yaml
@@ -82,7 +85,8 @@ jobs:
         run: zip release.zip ./* -r
     ```
 
-    * Zips the build files into an artifact named `release.zip`.
+    - Zips the build files into an artifact named `release.zip`.
+
 5.  **Upload Artifact**
 
     ```yaml
@@ -93,25 +97,25 @@ jobs:
           path: release.zip
     ```
 
-    * Uses the `actions/upload-artifact@v3` action to upload the zipped artifact for the deployment job.
+    - Uses the `actions/upload-artifact@v3` action to upload the zipped artifact for the deployment job.
 
 #### Deploy Job
 
 ```yaml
 deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    environment:
-      name: "Production"
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    permissions:
-      id-token: write
+  runs-on: ubuntu-latest
+  needs: build
+  environment:
+    name: "Production"
+    url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+  permissions:
+    id-token: write
 ```
 
-* `deploy`: The deploy job.
-* `needs`: Specifies that the deploy job depends on the successful completion of the build job.
-* `environment`: Sets the deployment environment to "Production".
-* `permissions`: Grants necessary permissions for deployment.
+- `deploy`: The deploy job.
+- `needs`: Specifies that the deploy job depends on the successful completion of the build job.
+- `environment`: Sets the deployment environment to "Production".
+- `permissions`: Grants necessary permissions for deployment.
 
 **Steps**
 
@@ -124,7 +128,8 @@ deploy:
           name: node-app
     ```
 
-    * Uses the `actions/download-artifact@v3` action to download the artifact from the build job.
+    - Uses the `actions/download-artifact@v3` action to download the artifact from the build job.
+
 2.  **Unzip Artifact**
 
     ```yaml
@@ -132,7 +137,8 @@ deploy:
         run: unzip release.zip
     ```
 
-    * Unzips the downloaded artifact.
+    - Unzips the downloaded artifact.
+
 3.  **Login to Azure**
 
     ```yaml
@@ -144,7 +150,8 @@ deploy:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B2D3E7AC4D2746E1B83F7AB5E583F4B0 }}
     ```
 
-    * Uses the `azure/login@v1` action to log into Azure using provided credentials.
+    - Uses the `azure/login@v1` action to log into Azure using provided credentials.
+
 4.  **Deploy to Azure Web App**
 
     ```yaml
@@ -157,4 +164,4 @@ deploy:
           package: .
     ```
 
-    * Uses the `azure/webapps-deploy@v2` action to deploy the application to the Azure Web App named `digikey-dashboard-api`.
+    - Uses the `azure/webapps-deploy@v2` action to deploy the application to the Azure Web App named `digikey-dashboard-api`.

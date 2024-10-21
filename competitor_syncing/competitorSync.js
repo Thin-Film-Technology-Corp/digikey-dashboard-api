@@ -28,7 +28,14 @@ async function fetchWithRetries(url, options, retries = 3) {
   while (retries > 0) {
     let response = await fetch(url, options);
     if (response.ok) {
-      return await response.json();
+      console.log(
+        `retrieved response.ok on ${JSON.parse(options.body).Offset}`
+      );
+      return response.json();
+    } else {
+      console.log(
+        `There was an error fetching with retries: ${response.status}\n${response.statusText}`
+      );
     }
     retries--;
   }
@@ -47,17 +54,25 @@ function validatePNs(markers, initialOffset, total, limit) {
 }
 
 // use array of offsets to retrieve missing information
-async function remediatePNs(redos, body, accessToken, burstLimit, burstReset) {
+async function remediatePNs(
+  redos,
+  body,
+  accessToken,
+  burstLimit,
+  burstReset,
+  clientId
+) {
   let retArr = [];
   let failCount = 0;
   let bursts = 1;
   let index = 0;
 
+  clientId = clientId || process.env.clientId;
+
   // Get amount of bursts
-  if (redos.length / body.limit > burstLimit) {
-    bursts = redos.length / body.limit / burstLimit;
+  if (redos.length / body.Limit > burstLimit) {
+    bursts = redos.length / body.Limit / burstLimit;
   }
-  console.log(`burts: ${bursts}`);
 
   for (let i = 0; i < bursts; i++) {
     logExceptOnTest(
@@ -72,6 +87,7 @@ async function remediatePNs(redos, body, accessToken, burstLimit, burstReset) {
     for (let redo in redoSlice) {
       try {
         body.Offset = redos[redo];
+        logExceptOnTest(`redoing indexes ${body.Offset} - ${body.Offset + 50}`);
         let data = await fetchWithRetries(
           "https://api.digikey.com/products/v4/search/keyword",
           {
@@ -86,12 +102,13 @@ async function remediatePNs(redos, body, accessToken, burstLimit, burstReset) {
         );
         retArr.push(...data.Products);
       } catch (error) {
+        logExceptOnTest(`error remediating parts: ${error}`);
         failCount++;
         if (failCount > 4) {
           throw new Error(`5 failures occurred for part number remdiation`);
         }
         console.error(
-          `There was a problem with the request for part number remidiation\n\ttotal failures: ${failCount} \n${await error.text()}`
+          `There was a problem with the request for part number remidiation\n\ttotal failures: ${failCount} \n${error.message}`
         );
       }
     }
@@ -104,19 +121,25 @@ async function remediatePNs(redos, body, accessToken, burstLimit, burstReset) {
   return retArr;
 }
 
-async function retrieveBurstLimit(accessToken, body, burstLimit, markers) {
+async function retrieveBurstLimit(
+  accessToken,
+  body,
+  burstLimit,
+  markers,
+  client_id
+) {
   let promiseArray = [];
+  client_id = client_id || process.env.clientId;
+
   markers = markers || new Map([]);
   for (let i = 0; i < burstLimit; i++) {
-    console.log(`Burst index ${i} / ${burstLimit}`);
-
     try {
       promiseArray.push({
         index: body.Offset,
         data: fetch("https://api.digikey.com/products/v4/search/keyword", {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            "X-DIGIKEY-Client-Id": process.env.clientId,
+            "X-DIGIKEY-Client-Id": client_id,
             "Content-Type": "application/json",
           },
           method: "POST",
@@ -142,14 +165,27 @@ export async function retrieveResistorPNs(
   accessToken,
   body,
   burstReset,
-  burstLimit
+  burstLimit,
+  total,
+  apiIndex,
+  client_id,
+  remediationToken
 ) {
-  let total;
   let promiseArray = [];
   let markers = new Map();
   let redos = [];
+
+  // API index is just for debugging
+  apiIndex = apiIndex || "null";
   // 240 requests within time frame
+
   burstLimit = burstLimit || 238;
+  const partsPerAPI = total - body.Offset;
+  // if parts per api is less than the burst limit * 50 set the burst limit to the parts per api / 50
+  if (partsPerAPI < burstLimit * 50) {
+    burstLimit = Math.ceil(partsPerAPI / 50);
+  }
+
   // 15 second reset
   burstReset = burstReset || 15000;
 
@@ -174,7 +210,108 @@ export async function retrieveResistorPNs(
 
   const initialOffset = structuredClone(body.Offset);
 
-  // send one fetch to get product count
+  const totalBatches = total / body.Limit;
+  const completedBatches = body.Offset / body.Limit;
+  const numberOfBatches = Math.ceil(totalBatches - completedBatches);
+  const numberOfBursts = Math.ceil(numberOfBatches / burstLimit);
+  // logExceptOnTest(
+  //   `number of batches: ${numberOfBatches}\nnumber of bursts: ${numberOfBursts}`
+  // );
+
+  return new Promise(async (resolve, reject) => {
+    for (let i = 0; i < numberOfBursts; i++) {
+      if (i > 0) {
+        console.log(`${burstReset / 1000} second timeout...`);
+        await new Promise((resolve) => setTimeout(resolve, burstReset + 1000));
+      }
+      console.log(`Burst ${i} on API ${apiIndex}:`);
+
+      let burstLimitData = await retrieveBurstLimit(
+        accessToken,
+        body,
+        burstLimit,
+        markers,
+        client_id
+      );
+
+      promiseArray.push(...burstLimitData[0]);
+      markers = burstLimitData[1];
+    }
+
+    const pns = [];
+    promiseArray = await Promise.all(
+      promiseArray.map((r) =>
+        r.data
+          .then((res) => {
+            if (!res.ok) {
+              // set marker to false for revision
+              markers.set(r.index, false);
+              throw new Error(
+                `promise for part numbering failed!\n${res.status}`
+              );
+            }
+            return res.json();
+          })
+          .then((d) => {
+            logExceptOnTest("pushing product to pn...");
+            pns.push(...d.Products);
+            return { ...d, index: r.index };
+          })
+          .catch((error) => {
+            // console.error("Error processing request:", error);
+            // set marker to false for revision
+            markers.set(r.index, false);
+            // Return a default value or handle the error in a way that doesn't break the Promise.all
+            // return { error: true, index: r.index, message: error.message };
+          })
+      )
+    );
+    // Validate that we got all of our information
+    // Check if length matches number of batches or if any marker is set to negative
+
+    console.log(
+      `PNs length: ${pns.length}\nExpected length: ${
+        total - initialOffset
+      }\nDoes markers include false values: ${[...markers.values()].includes(
+        false
+      )}`
+    );
+
+    // Remediation
+    if ([...markers.values()].includes(false)) {
+      logExceptOnTest(`pns require validation`);
+      let validatedRedos = validatePNs(
+        markers,
+        initialOffset,
+        total,
+        body.Limit
+      );
+      redos.push(...validatedRedos);
+
+      let additionalPNs = [];
+      try {
+        logExceptOnTest(`${redos.length} batches require another attempt`);
+        additionalPNs = await remediatePNs(
+          redos,
+          body,
+          remediationToken,
+          burstLimit,
+          burstReset,
+          process.env.clientId
+        );
+      } catch (error) {
+        console.error(error);
+      }
+      pns.push(...(await Promise.all(additionalPNs)));
+      logExceptOnTest(`pushed ${additionalPNs.length} redone parts into pns`);
+    }
+
+    resolve(pns.map(structurePNs));
+  });
+}
+
+async function returnTotalParts(accessToken, body) {
+  let total;
   let response = await fetch(
     "https://api.digikey.com/products/v4/search/keyword",
     {
@@ -194,95 +331,7 @@ export async function retrieveResistorPNs(
     console.log("There was an error retrieving the product count");
   }
 
-  const numberOfBatches = total / body.Limit - body.Offset / body.Limit;
-  const numberOfBursts = Math.ceil(numberOfBatches / burstLimit);
-  console.log(`number of bursts: ${numberOfBursts}`);
-
-  for (let i = 0; i < numberOfBursts; i++) {
-    if (i > 0) {
-      console.log(`${burstReset / 1000} second timeout...`);
-
-      await new Promise((resolve) => setTimeout(resolve, burstReset + 1000));
-    }
-    console.log(`Burst ${i}:`);
-
-    let burstLimitData = await retrieveBurstLimit(
-      accessToken,
-      body,
-      burstLimit,
-      markers
-    );
-
-    promiseArray.push(...burstLimitData[0]);
-    markers = burstLimitData[1];
-  }
-
-  // console.log(promiseArray);
-
-  const pns = [];
-  promiseArray = await Promise.all(
-    promiseArray.map((r) =>
-      r.data
-        .then((res) => {
-          if (!res.ok) {
-            // set marker to false for revision
-            markers.set(r.index, false);
-            throw new Error(
-              `promise for part numbering failed!\n${res.status}`
-            );
-          }
-          return res.json();
-        })
-        .then((d) => {
-          pns.push(...d.Products);
-          return { ...d, index: r.index };
-        })
-        .catch((error) => {
-          console.error("Error processing request:", error);
-          // set marker to false for revision
-          markers.set(r.index, false);
-          // Return a default value or handle the error in a way that doesn't break the Promise.all
-          // return { error: true, index: r.index, message: error.message };
-        })
-    )
-  );
-  // Validate that we got all of our information
-  // Check if length matches number of batches or if any marker is set to negative
-
-  console.log(
-    `PNs length: ${pns.length}\nExpected length: ${
-      total - initialOffset
-    }\nDoes markers include false values: ${[...markers.values()].includes(
-      false
-    )}`
-  );
-
-  if (
-    pns.length !== total - initialOffset ||
-    [...markers.values()].includes(false)
-  ) {
-    logExceptOnTest(`pns require validation`);
-    let validatedRedos = validatePNs(markers, initialOffset, total, body.Limit);
-    redos.push(...validatedRedos);
-
-    let additionalPNs = [];
-    try {
-      logExceptOnTest(`${redos.length} batches require another attempt`);
-      additionalPNs = await remediatePNs(
-        redos,
-        body,
-        accessToken,
-        burstLimit,
-        burstReset
-      );
-    } catch (error) {
-      console.error(error);
-    }
-    pns.push(...additionalPNs);
-    logExceptOnTest(`pushed ${additionalPNs.length} redone parts into pns`);
-  }
-
-  return pns.map(structurePNs);
+  return total;
 }
 
 function addHashAndDate(data, hash = false) {
@@ -305,7 +354,7 @@ function structurePNs(originalData) {
   const parameters = originalData.Parameters || [];
 
   const getVariationData = (id) =>
-    productVariations.find((v) => v.PackageType.Id === id) || {};
+    productVariations.find((v) => v.PackageType?.Id === id) || {};
 
   const getParameterValue = (text) =>
     parameters.find((p) => p.ParameterText === text)?.ValueText || "";
@@ -497,31 +546,136 @@ function processPartNumbers(queryResults, existingPartsMap) {
   return { bulkOp, insertionList };
 }
 
+async function checkAPIAccess(clientId, accessToken) {
+  let body = {
+    Keywords: "Resistor",
+    Limit: 1,
+    Offset: 0,
+    FilterOptionsRequest: {
+      ManufacturerFilter: [],
+      MinimumQuantityAvailable: 1,
+      ParameterFilterRequest: {
+        CategoryFilter: { Id: "52", Value: "Chip Resistor - Surface Mount" },
+      },
+      StatusFilter: [{ Id: 0, Value: "Active" }],
+    },
+    ExcludeMarketPlaceProducts: false,
+    SortOptions: {
+      Field: "None",
+      SortOrder: "Ascending",
+    },
+  };
+  let response = await fetch(
+    "https://api.digikey.com/products/v4/search/keyword",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "X-DIGIKEY-Client-Id": clientId,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+  if (response.ok) {
+    // Return the number of parts we can still recieve
+    return response.headers.get("X-RateLimit-Remaining") * 50;
+  } else {
+    return false;
+  }
+}
+
 // Abstraction that calls the functions in their order
 // Connects to mongoDB and makes the additions
-export async function syncCompetitors(numSyncs) {
-  numSyncs = numSyncs || 1;
+export async function syncCompetitors() {
+  let body = {
+    Keywords: "Resistor",
+    Limit: 1,
+    Offset: 80000,
+    FilterOptionsRequest: {
+      ManufacturerFilter: [],
+      MinimumQuantityAvailable: 1,
+      ParameterFilterRequest: {
+        CategoryFilter: { Id: "52", Value: "Chip Resistor - Surface Mount" },
+      },
+      StatusFilter: [{ Id: 0, Value: "Active" }],
+    },
+    ExcludeMarketPlaceProducts: false,
+    SortOptions: {
+      Field: "None",
+      SortOrder: "Ascending",
+    },
+  };
+
+  // This access token for getting total and is used as a backup
   logExceptOnTest("getting access tokens for digikey...");
   // up to 5 APIs om use at once
-  const credentialArray = [
+  let credentialArray = [
     { id: process.env?.db_sync_01_id, secret: process.env?.db_sync_01_secret },
     { id: process.env?.db_sync_02_id, secret: process.env?.db_sync_02_secret },
     { id: process.env?.db_sync_03_id, secret: process.env?.db_sync_03_secret },
     { id: process.env?.db_sync_04_id, secret: process.env?.db_sync_04_secret },
     { id: process.env?.db_sync_05_id, secret: process.env?.db_sync_05_secret },
   ];
+  // Begin processing all the access tokens
   for (let credential in credentialArray) {
     let cred = credentialArray[credential];
     if (cred.id && cred.secret) {
-      cred.accessToken = await getAccessTokenForDigikeyAPI();
+      cred.accessToken = await getAccessTokenForDigikeyAPI(
+        cred.id,
+        cred.secret
+      );
     }
+    cred.isActive = await checkAPIAccess(cred.id, cred.accessToken);
   }
+
+  // Filters operating APIs based on if they have an access token and if they show a 200 when requested
+  const operatingAPIs = credentialArray.filter((a) => a.isActive);
+  if (operatingAPIs.length === 0) {
+    return null;
+  }
+
   const accessToken = await getAccessTokenForDigikeyAPI();
 
-  logExceptOnTest("retrieving all Chip Resistors from Digikey...");
-  const pns = await retrieveResistorPNs(accessToken);
+  logExceptOnTest(`retrieving total amount of resistors...`);
+  const total = await returnTotalParts(accessToken, body);
 
-  console.log(pns.length);
+  // Raise body limit to max
+  body.Limit = 50;
+
+  logExceptOnTest(
+    `${operatingAPIs.length} / ${credentialArray.length} APIs operating`
+  );
+
+  // Divide the total amongst the operating APIs
+  let totalInBatches = Math.ceil((total - body.Offset) / body.Limit);
+  let partsPerAPI =
+    Math.ceil(totalInBatches / operatingAPIs.length) * body.Limit;
+
+  logExceptOnTest(`parts per API: ${partsPerAPI} / ${total - body.Offset}`);
+
+  let pns = [];
+  for (let api in operatingAPIs) {
+    let cred = operatingAPIs[api];
+    // retrieve resistor pns modifies the body offset
+    pns.push(
+      retrieveResistorPNs(
+        cred.accessToken,
+        body,
+        15000,
+        238,
+        body.Offset + partsPerAPI,
+        api,
+        cred.id,
+        accessToken
+      )
+    );
+  }
+
+  logExceptOnTest("retrieving all Chip Resistors from Digikey...");
+  pns = (await Promise.all(pns)).flat();
+
+  // writeFileSync("./temp/checkOnParts.json", JSON.stringify(pns));
 
   if (pns.length < 1) {
     console.log(

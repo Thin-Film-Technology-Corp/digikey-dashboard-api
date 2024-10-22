@@ -49,6 +49,61 @@ function validatePNs(markers, initialOffset, total, limit) {
   return redoArray;
 }
 
+// remediates pns in a batch format, distinct from retrievepns function because it doesn't necesarily go sequentially (maybe we could change that about retrieve resistor pns to consolidate these and make it recursive)
+async function bulkRemediation(arrOfPNs, body, accessToken, clientId) {
+  let redos = [];
+  let pns = [];
+  let promiseArray = [];
+  // iterate over the redos
+  for (let pn in arrOfPNs) {
+    let index = arrOfPNs[pn];
+    body.Offset = index;
+    // fetch all of them at their indexes
+    // put them into an array
+    promiseArray.push({
+      index: body.Offset,
+      data: fetch("https://api.digikey.com/products/v4/search/keyword", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "X-DIGIKEY-Client-Id": clientId,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    });
+  }
+  // await promise.all them and validate the response.ok
+
+  promiseArray = await Promise.all(
+    promiseArray.map((r) =>
+      r.data
+        .then((res) => {
+          if (!res.ok) {
+            // add index of redo to redo array
+            redos.push(r.index);
+            throw new Error(
+              `promise for part numbering failed!\n${res.status}`
+            );
+          }
+          return res.json();
+        })
+        .then((d) => {
+          pns.push(...d.Products);
+          return { ...d, index: r.index };
+        })
+        .catch((error) => {
+          console.error("Error processing request:", error);
+          // add index of redo to redo array
+          redos.push(r.index);
+        })
+    )
+  );
+  // get new redo array
+
+  return [redos, pns];
+}
+
 // use array of offsets to retrieve missing information
 async function remediatePNs(
   redos,
@@ -82,10 +137,24 @@ async function remediatePNs(
     index = i * burstLimit;
     let redoSlice = redos.slice(index, index + burstLimit);
 
+    // TODO: Add in a redo here with batches instead of individual requests, try to get a majority of these knocked out before moving to the much slower fetch with retries
+    logExceptOnTest(`Attempting bulk remediation...`);
+
+    [redoSlice, retArr] = await bulkRemediation(
+      redoSlice,
+      body,
+      accessToken,
+      clientId
+    );
+
+    logExceptOnTest(
+      `Bulk remediation failed to address ${redoSlice.length} PNs. \nForcing individual remediation with retries... `
+    );
+
     for (let redo in redoSlice) {
       try {
         body.Offset = redos[redo];
-        // logExceptOnTest(`redoing indexes ${body.Offset} - ${body.Offset + 50}`);
+        logExceptOnTest(`redoing indexes ${body.Offset} - ${body.Offset + 50}`);
         let data = await fetchWithRetries(
           "https://api.digikey.com/products/v4/search/keyword",
           {
@@ -264,8 +333,9 @@ export async function retrieveResistorPNs(
                 throw new Error(
                   `promise for part numbering failed!\n${res.status}`
                 );
+              } else {
+                return res.json();
               }
-              return res.json();
             })
             .then((d) => {
               // logExceptOnTest("pushing product to pn...");
@@ -273,7 +343,7 @@ export async function retrieveResistorPNs(
               return { ...d, index: r.index };
             })
             .catch((error) => {
-              console.error("Error processing request:", error);
+              // console.error("Error processing request:", error);
               // set marker to false for revision
               markers.set(r.index, false);
               // Return a default value or handle the error in a way that doesn't break the Promise.all

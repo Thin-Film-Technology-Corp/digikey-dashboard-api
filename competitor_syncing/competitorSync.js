@@ -1,9 +1,6 @@
 import { config } from "dotenv";
 import { MongoClient } from "mongodb";
-import {
-  getAccessTokenForDigikeyAPI,
-  getAllPartsInDigikeySearchV4,
-} from "../digiKeyAPI.js";
+import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
 import { createHash } from "node:crypto";
 import {
   isMainThread,
@@ -42,7 +39,12 @@ async function fetchWithRetries(url, options, retries = 3) {
 function validatePNs(markers, initialOffset, total, limit) {
   let redoArray = [];
   for (let i = initialOffset; i < total; i += limit) {
-    if (markers.get(i) === false) {
+    // TODO: test if this can just be a single truthy
+    if (
+      markers.get(i) === false ||
+      markers.get(i) === undefined ||
+      markers.get(i) === null
+    ) {
       redoArray.push(i);
     }
   }
@@ -93,7 +95,7 @@ async function bulkRemediation(arrOfPNs, body, accessToken, clientId) {
           return { ...d, index: r.index };
         })
         .catch((error) => {
-          console.error("Error processing request:", error);
+          // console.error("Error processing request:", error);
           // add index of redo to redo array
           redos.push(r.index);
         })
@@ -116,16 +118,11 @@ async function remediatePNs(
 ) {
   let retArr = [];
   let failCount = 0;
-  let bursts = 1;
+  let bursts = Math.ceil(redos.length / burstLimit);
   let index = 0;
   fixedBatches = fixedBatches || 0;
 
   clientId = clientId || process.env.clientId;
-
-  // Get amount of bursts
-  if (redos.length / body.Limit > burstLimit) {
-    bursts = redos.length / body.Limit / burstLimit;
-  }
 
   for (let i = 0; i < bursts; i++) {
     logExceptOnTest(
@@ -138,14 +135,21 @@ async function remediatePNs(
     let redoSlice = redos.slice(index, index + burstLimit);
 
     // TODO: Add in a redo here with batches instead of individual requests, try to get a majority of these knocked out before moving to the much slower fetch with retries
-    logExceptOnTest(`Attempting bulk remediation...`);
+    logExceptOnTest(
+      `Attempting bulk remediation of ${redoSlice.length} PN batches...`
+    );
 
-    [redoSlice, retArr] = await bulkRemediation(
+    // ? This was the last thing added 22Oct. I'm out of tokens and cannot test it, but I believe the retArr was being overwritten and thus the remediated PNs were being lost except for the final ones
+    let remediatedPNs;
+
+    // bulkRemediation will attempt to resolve the entire batch in bulk so that there is no need to redo each request individually
+    [redoSlice, remediatedPNs] = await bulkRemediation(
       redoSlice,
       body,
       accessToken,
       clientId
     );
+    retArr.push(...remediatedPNs);
 
     logExceptOnTest(
       `Bulk remediation failed to address ${redoSlice.length} PNs. \nForcing individual remediation with retries... `
@@ -278,10 +282,10 @@ export async function retrieveResistorPNs(
 
   const initialOffset = structuredClone(body.Offset);
 
-  const totalBatches = total / body.Limit;
-  const completedBatches = body.Offset / body.Limit;
-  const numberOfBatches = Math.ceil(totalBatches - completedBatches);
-  const numberOfBursts = Math.ceil(numberOfBatches / burstLimit);
+  const totalBatches = total / body.Limit; // total = 31,000 and limit = 50 so 620
+  const completedBatches = body.Offset / body.Limit; // Offset = 0 and Limit = 50 so 0
+  const numberOfBatches = Math.ceil(totalBatches - completedBatches); // 620
+  const numberOfBursts = Math.ceil(numberOfBatches / burstLimit); // 620 / 238 = 3 (2.6)
   // logExceptOnTest(
   //   `number of batches: ${numberOfBatches}\nnumber of bursts: ${numberOfBursts}`
   // );
@@ -699,7 +703,7 @@ export async function syncCompetitors() {
 
   // This access token for getting total and is used as a backup
   logExceptOnTest("getting access tokens for digikey...");
-  // up to 5 APIs om use at once
+  // up to 5 APIs in use at once
   let credentialArray = [
     { id: process.env?.db_sync_01_id, secret: process.env?.db_sync_01_secret },
     { id: process.env?.db_sync_02_id, secret: process.env?.db_sync_02_secret },
@@ -707,6 +711,29 @@ export async function syncCompetitors() {
     { id: process.env?.db_sync_04_id, secret: process.env?.db_sync_04_secret },
     { id: process.env?.db_sync_05_id, secret: process.env?.db_sync_05_secret },
   ];
+
+  // let credentialArray = [
+  //   {
+  //     id: process.env?.db_sync_01_backup_id,
+  //     secret: process.env?.db_sync_01_backup_secret,
+  //   },
+  //   {
+  //     id: process.env?.db_sync_02_backup_id,
+  //     secret: process.env?.db_sync_02_backup_secret,
+  //   },
+  //   {
+  //     id: process.env?.db_sync_03_backup_id,
+  //     secret: process.env?.db_sync_03_backup_secret,
+  //   },
+  //   {
+  //     id: process.env?.db_sync_04_backup_id,
+  //     secret: process.env?.db_sync_04_backup_secret,
+  //   },
+  //   {
+  //     id: process.env?.db_sync_05_backup_id,
+  //     secret: process.env?.db_sync_05_backup_secret,
+  //   },
+  // ];
   // Begin processing all the access tokens
   for (let credential in credentialArray) {
     let cred = credentialArray[credential];
@@ -783,19 +810,20 @@ export async function syncCompetitors() {
 
       logExceptOnTest(`Parts remaining on API ${api}: ${cred.isActive}`);
 
-      // retrieve resistor pns modifies the body offset
       pns.push(
         retrieveResistorPNs(
           cred.accessToken,
           body,
-          15000,
-          238,
+          60000,
+          120,
           body.Offset + totalPartsHandled,
           api,
           cred.id,
           accessToken
         )
       );
+
+      // Explicitly modify the body offset so the indexes are correctly ordered
       body.Offset += totalPartsHandled;
     } catch (error) {
       console.error(`Error retrieving resistor PNs ${error}`);
@@ -804,6 +832,7 @@ export async function syncCompetitors() {
   }
 
   logExceptOnTest("retrieving all Chip Resistors from Digikey...");
+
   pns = (await Promise.all(pns)).flat();
 
   // writeFileSync("./temp/checkOnParts.json", JSON.stringify(pns));

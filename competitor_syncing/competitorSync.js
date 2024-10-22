@@ -12,7 +12,6 @@ import {
   workerData,
 } from "node:worker_threads";
 import { readFileSync, writeFileSync } from "fs";
-
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,9 +27,6 @@ async function fetchWithRetries(url, options, retries = 3) {
   while (retries > 0) {
     let response = await fetch(url, options);
     if (response.ok) {
-      console.log(
-        `retrieved response.ok on ${JSON.parse(options.body).Offset}`
-      );
       return response.json();
     } else {
       console.log(
@@ -60,12 +56,14 @@ async function remediatePNs(
   accessToken,
   burstLimit,
   burstReset,
-  clientId
+  clientId,
+  fixedBatches
 ) {
   let retArr = [];
   let failCount = 0;
   let bursts = 1;
   let index = 0;
+  fixedBatches = fixedBatches || 0;
 
   clientId = clientId || process.env.clientId;
 
@@ -87,7 +85,7 @@ async function remediatePNs(
     for (let redo in redoSlice) {
       try {
         body.Offset = redos[redo];
-        logExceptOnTest(`redoing indexes ${body.Offset} - ${body.Offset + 50}`);
+        // logExceptOnTest(`redoing indexes ${body.Offset} - ${body.Offset + 50}`);
         let data = await fetchWithRetries(
           "https://api.digikey.com/products/v4/search/keyword",
           {
@@ -100,6 +98,8 @@ async function remediatePNs(
             body: JSON.stringify(body),
           }
         );
+        fixedBatches += data.Products.length;
+        logExceptOnTest(`${fixedBatches} / ${redos.length * 50} remediated`);
         retArr.push(...data.Products);
       } catch (error) {
         logExceptOnTest(`error remediating parts: ${error}`);
@@ -117,7 +117,6 @@ async function remediatePNs(
   // If the total redos is greater than the burst limit, divide it into parts
 
   // run fetch on each of the redos in the array, using the value as the offset
-
   return retArr;
 }
 
@@ -220,52 +219,71 @@ export async function retrieveResistorPNs(
 
   return new Promise(async (resolve, reject) => {
     for (let i = 0; i < numberOfBursts; i++) {
-      if (i > 0) {
-        console.log(`${burstReset / 1000} second timeout...`);
-        await new Promise((resolve) => setTimeout(resolve, burstReset + 1000));
+      try {
+        if (i > 0) {
+          console.log(`${burstReset / 1000} second timeout...`);
+          await new Promise((resolve) =>
+            setTimeout(resolve, burstReset + 1000)
+          );
+        }
+        console.log(`Burst ${i} on API ${apiIndex}:`);
+      } catch (error) {
+        console.error(
+          `Error waiting for burst reset (Burst ${i} on API ${apiIndex}): ${error}`
+        );
       }
-      console.log(`Burst ${i} on API ${apiIndex}:`);
 
-      let burstLimitData = await retrieveBurstLimit(
-        accessToken,
-        body,
-        burstLimit,
-        markers,
-        client_id
-      );
+      try {
+        let burstLimitData = await retrieveBurstLimit(
+          accessToken,
+          body,
+          burstLimit,
+          markers,
+          client_id
+        );
 
-      promiseArray.push(...burstLimitData[0]);
-      markers = burstLimitData[1];
+        promiseArray.push(...burstLimitData[0]);
+        markers = burstLimitData[1];
+      } catch (error) {
+        console.error(
+          `Error retriving burst limit on burst ${i} on API ${apiIndex}: ${error}`
+        );
+      }
     }
 
     const pns = [];
-    promiseArray = await Promise.all(
-      promiseArray.map((r) =>
-        r.data
-          .then((res) => {
-            if (!res.ok) {
+    try {
+      logExceptOnTest(`resolving promise array...`);
+      promiseArray = await Promise.all(
+        promiseArray.map((r) =>
+          r.data
+            .then((res) => {
+              if (!res.ok) {
+                // set marker to false for revision
+                markers.set(r.index, false);
+                throw new Error(
+                  `promise for part numbering failed!\n${res.status}`
+                );
+              }
+              return res.json();
+            })
+            .then((d) => {
+              // logExceptOnTest("pushing product to pn...");
+              pns.push(...d.Products);
+              return { ...d, index: r.index };
+            })
+            .catch((error) => {
+              console.error("Error processing request:", error);
               // set marker to false for revision
               markers.set(r.index, false);
-              throw new Error(
-                `promise for part numbering failed!\n${res.status}`
-              );
-            }
-            return res.json();
-          })
-          .then((d) => {
-            logExceptOnTest("pushing product to pn...");
-            pns.push(...d.Products);
-            return { ...d, index: r.index };
-          })
-          .catch((error) => {
-            // console.error("Error processing request:", error);
-            // set marker to false for revision
-            markers.set(r.index, false);
-            // Return a default value or handle the error in a way that doesn't break the Promise.all
-            // return { error: true, index: r.index, message: error.message };
-          })
-      )
-    );
+              // Return a default value or handle the error in a way that doesn't break the Promise.all
+              // return { error: true, index: r.index, message: error.message };
+            })
+        )
+      );
+    } catch (error) {
+      console.error(`Error resolving promises on burst limit data: ${error}`);
+    }
     // Validate that we got all of our information
     // Check if length matches number of batches or if any marker is set to negative
 
@@ -291,13 +309,15 @@ export async function retrieveResistorPNs(
       let additionalPNs = [];
       try {
         logExceptOnTest(`${redos.length} batches require another attempt`);
+        let fixedBatches = 0;
         additionalPNs = await remediatePNs(
           redos,
           body,
           remediationToken,
           burstLimit,
           burstReset,
-          process.env.clientId
+          process.env.clientId,
+          fixedBatches
         );
       } catch (error) {
         console.error(error);
@@ -644,7 +664,7 @@ export async function syncCompetitors() {
   body.Limit = 50;
 
   logExceptOnTest(
-    `${operatingAPIs.length} / ${credentialArray.length} APIs operating`
+    `${operatingAPIs.length} / ${credentialArray.length} APIs operating \n`
   );
 
   // Divide the total amongst the operating APIs
@@ -655,21 +675,60 @@ export async function syncCompetitors() {
   logExceptOnTest(`parts per API: ${partsPerAPI} / ${total - body.Offset}`);
 
   let pns = [];
+  let floatingPNs = 0;
+  // TODO: order these operating APIs so the smalles isActive comes first (for the floating PNs)
+
+  operatingAPIs.sort((a, b) => {
+    return a.isActive - b.isActive;
+  });
+
   for (let api in operatingAPIs) {
-    let cred = operatingAPIs[api];
-    // retrieve resistor pns modifies the body offset
-    pns.push(
-      retrieveResistorPNs(
-        cred.accessToken,
-        body,
-        15000,
-        238,
-        body.Offset + partsPerAPI,
-        api,
-        cred.id,
-        accessToken
-      )
-    );
+    try {
+      let cred = operatingAPIs[api];
+      let totalPartsHandled;
+
+      // if this api can't handle all requests given to it, add those to the floating PNs and give them to another
+      if (cred.isActive < partsPerAPI) {
+        floatingPNs += partsPerAPI - cred.isActive;
+        totalPartsHandled = cred.isActive;
+        // This API is able to accept all the requested parts, so we will check if it can take extras too
+      } else {
+        let extraParts = cred.isActive - partsPerAPI;
+        // if we have more extra requests than pns which needs to be taken, give all the pns to this api
+        // Sse the total parts per api with all additional floating parts
+        if (extraParts >= floatingPNs) {
+          totalPartsHandled = partsPerAPI + floatingPNs;
+          // if there are more pns that needs to be taken than extra requests, take all that we can and subtract that number from the floating pns
+          // Use all possible tokens remaining in the API for this operation
+        } else {
+          floatingPNs -= extraParts;
+          totalPartsHandled = cred.isActive;
+        }
+      }
+      console.log(
+        `API ${api} is taking indexes ${body.Offset} - ${
+          body.Offset + totalPartsHandled
+        } out of ${total - body.Offset} parts`
+      );
+
+      logExceptOnTest(`Parts remaining on API ${api}: ${cred.isActive}`);
+      // retrieve resistor pns modifies the body offset
+      pns.push(
+        ...(await retrieveResistorPNs(
+          cred.accessToken,
+          body,
+          15000,
+          238,
+          body.Offset + totalPartsHandled,
+          api,
+          cred.id,
+          accessToken
+        ))
+      );
+    } catch (error) {
+      console.error(`Error retrieving resistor PNs ${error}`);
+      return null;
+    }
   }
 
   logExceptOnTest("retrieving all Chip Resistors from Digikey...");

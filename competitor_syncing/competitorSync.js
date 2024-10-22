@@ -681,7 +681,7 @@ export async function syncCompetitors() {
   let body = {
     Keywords: "Resistor",
     Limit: 1,
-    Offset: 80000,
+    Offset: 0,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -775,16 +775,17 @@ export async function syncCompetitors() {
           totalPartsHandled = cred.isActive;
         }
       }
-      console.log(
+      logExceptOnTest(
         `API ${api} is taking indexes ${body.Offset} - ${
           body.Offset + totalPartsHandled
         } out of ${total - body.Offset} parts`
       );
 
       logExceptOnTest(`Parts remaining on API ${api}: ${cred.isActive}`);
+
       // retrieve resistor pns modifies the body offset
       pns.push(
-        ...(await retrieveResistorPNs(
+        retrieveResistorPNs(
           cred.accessToken,
           body,
           15000,
@@ -793,8 +794,9 @@ export async function syncCompetitors() {
           api,
           cred.id,
           accessToken
-        ))
+        )
       );
+      body.Offset += totalPartsHandled;
     } catch (error) {
       console.error(`Error retrieving resistor PNs ${error}`);
       return null;

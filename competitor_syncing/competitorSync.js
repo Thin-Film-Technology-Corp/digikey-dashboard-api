@@ -26,9 +26,9 @@ async function fetchWithRetries(url, options, retries = 3) {
     if (response.ok) {
       return response.json();
     } else {
-      console.log(
-        `There was an error fetching with retries: ${response.status}\n${response.statusText}`
-      );
+      // console.log(
+      //   `There was an error fetching with retries: ${response.status}\n${response.statusText}`
+      // );
     }
     retries--;
   }
@@ -685,7 +685,7 @@ export async function syncCompetitors() {
   let body = {
     Keywords: "Resistor",
     Limit: 1,
-    Offset: 0,
+    Offset: 100000,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -704,36 +704,36 @@ export async function syncCompetitors() {
   // This access token for getting total and is used as a backup
   logExceptOnTest("getting access tokens for digikey...");
   // up to 5 APIs in use at once
-  let credentialArray = [
-    { id: process.env?.db_sync_01_id, secret: process.env?.db_sync_01_secret },
-    { id: process.env?.db_sync_02_id, secret: process.env?.db_sync_02_secret },
-    { id: process.env?.db_sync_03_id, secret: process.env?.db_sync_03_secret },
-    { id: process.env?.db_sync_04_id, secret: process.env?.db_sync_04_secret },
-    { id: process.env?.db_sync_05_id, secret: process.env?.db_sync_05_secret },
-  ];
-
   // let credentialArray = [
-  //   {
-  //     id: process.env?.db_sync_01_backup_id,
-  //     secret: process.env?.db_sync_01_backup_secret,
-  //   },
-  //   {
-  //     id: process.env?.db_sync_02_backup_id,
-  //     secret: process.env?.db_sync_02_backup_secret,
-  //   },
-  //   {
-  //     id: process.env?.db_sync_03_backup_id,
-  //     secret: process.env?.db_sync_03_backup_secret,
-  //   },
-  //   {
-  //     id: process.env?.db_sync_04_backup_id,
-  //     secret: process.env?.db_sync_04_backup_secret,
-  //   },
-  //   {
-  //     id: process.env?.db_sync_05_backup_id,
-  //     secret: process.env?.db_sync_05_backup_secret,
-  //   },
+  //   { id: process.env?.db_sync_01_id, secret: process.env?.db_sync_01_secret },
+  //   { id: process.env?.db_sync_02_id, secret: process.env?.db_sync_02_secret },
+  //   { id: process.env?.db_sync_03_id, secret: process.env?.db_sync_03_secret },
+  //   { id: process.env?.db_sync_04_id, secret: process.env?.db_sync_04_secret },
+  //   { id: process.env?.db_sync_05_id, secret: process.env?.db_sync_05_secret },
   // ];
+
+  let credentialArray = [
+    {
+      id: process.env?.db_sync_01_backup_id,
+      secret: process.env?.db_sync_01_backup_secret,
+    },
+    {
+      id: process.env?.db_sync_02_backup_id,
+      secret: process.env?.db_sync_02_backup_secret,
+    },
+    {
+      id: process.env?.db_sync_03_backup_id,
+      secret: process.env?.db_sync_03_backup_secret,
+    },
+    {
+      id: process.env?.db_sync_04_backup_id,
+      secret: process.env?.db_sync_04_backup_secret,
+    },
+    {
+      id: process.env?.db_sync_05_backup_id,
+      secret: process.env?.db_sync_05_backup_secret,
+    },
+  ];
   // Begin processing all the access tokens
   for (let credential in credentialArray) {
     let cred = credentialArray[credential];
@@ -764,17 +764,19 @@ export async function syncCompetitors() {
     `${operatingAPIs.length} / ${credentialArray.length} APIs operating \n`
   );
 
-  // Divide the total amongst the operating APIs
-  let totalInBatches = Math.ceil((total - body.Offset) / body.Limit);
+  // Create a clone of the body.Offset since we need to modify it ot get correct indexes
+  const initialOffset = structuredClone(body.Offset);
+  // Divide the total amongst the operating APIs, subtracting the initial body.Offset ensures that if we start at index 80,000 - 120,000 we get 40,000 parts instead of 120,000
+  let totalInBatches = Math.ceil((total - initialOffset) / body.Limit);
   let partsPerAPI =
     Math.ceil(totalInBatches / operatingAPIs.length) * body.Limit;
 
-  logExceptOnTest(`parts per API: ${partsPerAPI} / ${total - body.Offset}`);
+  logExceptOnTest(`parts per API: ${partsPerAPI} / ${initialOffset}`);
 
   let pns = [];
   let floatingPNs = 0;
-  // TODO: order these operating APIs so the smalles isActive comes first (for the floating PNs)
 
+  // order these operating APIs so the smalles isActive comes first (for the floating PNs)
   operatingAPIs.sort((a, b) => {
     return a.isActive - b.isActive;
   });
@@ -811,7 +813,7 @@ export async function syncCompetitors() {
       logExceptOnTest(`Parts remaining on API ${api}: ${cred.isActive}`);
 
       pns.push(
-        retrieveResistorPNs(
+        ...(await retrieveResistorPNs(
           cred.accessToken,
           body,
           60000,
@@ -820,11 +822,11 @@ export async function syncCompetitors() {
           api,
           cred.id,
           accessToken
-        )
+        ))
       );
 
       // Explicitly modify the body offset so the indexes are correctly ordered
-      body.Offset += totalPartsHandled;
+      // body.Offset += totalPartsHandled;
     } catch (error) {
       console.error(`Error retrieving resistor PNs ${error}`);
       return null;

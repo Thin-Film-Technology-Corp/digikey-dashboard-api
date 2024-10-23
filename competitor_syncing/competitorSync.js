@@ -524,7 +524,7 @@ export async function compareQueryToDatabase(
   coreCount
 ) {
   let testFile =
-    (await readFileSync("./temp/results.csv").toString()) ||
+    readFileSync("./temp/results.csv").toString() ||
     '"core count","elapsed time","number of parts","parts / ms"';
 
   const startTime = Date.now();
@@ -621,8 +621,8 @@ function processPartNumbers(queryResults, existingPartsMap) {
       // If the comparison results in another addition to that pn, then update
       // Otherwise do nothing
       if (
-        combinedInventory.length > oldPNData.inventory ||
-        combinedPricing.length > oldPNData.pricing
+        combinedInventory.length > oldPNData.inventory.length ||
+        combinedPricing.length > oldPNData.pricing.length
       ) {
         bulkOp.push({
           updateOne: {
@@ -685,7 +685,7 @@ export async function syncCompetitors() {
   let body = {
     Keywords: "Resistor",
     Limit: 1,
-    Offset: 100000,
+    Offset: 0,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,

@@ -10,6 +10,10 @@ import {
 } from "node:worker_threads";
 import { readFileSync, writeFileSync } from "fs";
 import { fileURLToPath } from "url";
+import pLimit from "p-limit";
+
+// limits the max amount of concurrent connections being made
+const limit = pLimit(15);
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -64,15 +68,17 @@ async function bulkRemediation(arrOfPNs, body, accessToken, clientId) {
     // put them into an array
     promiseArray.push({
       index: body.Offset,
-      data: fetch("https://api.digikey.com/products/v4/search/keyword", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "X-DIGIKEY-Client-Id": clientId,
-          "Content-Type": "application/json",
-        },
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
+      data: limit(() =>
+        fetch("https://api.digikey.com/products/v4/search/keyword", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-DIGIKEY-Client-Id": clientId,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify(body),
+        })
+      ),
     });
   }
   // await promise.all them and validate the response.ok
@@ -193,6 +199,7 @@ async function remediatePNs(
   return retArr;
 }
 
+// iterates over burst limit and modifies body.Offset to return promise array
 async function retrieveBurstLimit(
   accessToken,
   body,
@@ -200,6 +207,7 @@ async function retrieveBurstLimit(
   markers,
   client_id
 ) {
+  let containedBody = structuredClone(body);
   let promiseArray = [];
   client_id = client_id || process.env.clientId;
 
@@ -207,26 +215,28 @@ async function retrieveBurstLimit(
   for (let i = 0; i < burstLimit; i++) {
     try {
       promiseArray.push({
-        index: body.Offset,
-        data: fetch("https://api.digikey.com/products/v4/search/keyword", {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "X-DIGIKEY-Client-Id": client_id,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
+        index: containedBody.Offset,
+        data: limit(() =>
+          fetch("https://api.digikey.com/products/v4/search/keyword", {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "X-DIGIKEY-Client-Id": client_id,
+              "Content-Type": "application/json",
+            },
+            method: "POST",
+            body: JSON.stringify(containedBody),
+          })
+        ),
       });
       // markers array is added to after promise is added to array
-      markers.set(body.Offset, true);
-      body.Offset += body.Limit;
+      markers.set(containedBody.Offset, true);
+      containedBody.Offset += containedBody.Limit;
     } catch (error) {
       console.error(
-        `There was an error pushing promise for index ${body.Offset}\n
+        `There was an error pushing promise for index ${containedBody.Offset}\n
         ${error}`
       );
-      body.Offset += body.Limit;
+      containedBody.Offset += containedBody.Limit;
     }
   }
   return [promiseArray, markers];
@@ -286,11 +296,11 @@ export async function retrieveResistorPNs(
   const completedBatches = body.Offset / body.Limit; // Offset = 0 and Limit = 50 so 0
   const numberOfBatches = Math.ceil(totalBatches - completedBatches); // 620
   const numberOfBursts = Math.ceil(numberOfBatches / burstLimit); // 620 / 238 = 3 (2.6)
-  // logExceptOnTest(
-  //   `number of batches: ${numberOfBatches}\nnumber of bursts: ${numberOfBursts}`
-  // );
+  logExceptOnTest(
+    `number of batches: ${numberOfBatches}\nnumber of bursts: ${numberOfBursts}`
+  );
 
-  return new Promise(async (resolve, reject) => {
+  return await new Promise(async (resolve, reject) => {
     for (let i = 0; i < numberOfBursts; i++) {
       try {
         if (i > 0) {
@@ -316,7 +326,9 @@ export async function retrieveResistorPNs(
         );
 
         promiseArray.push(...burstLimitData[0]);
-        markers = burstLimitData[1];
+
+        // ? Wouldnt this overwrite the markers array? The retrieve burst limit function should be the one modifying this
+        // markers = burstLimitData[1];
       } catch (error) {
         console.error(
           `Error retriving burst limit on burst ${i} on API ${apiIndex}: ${error}`
@@ -608,6 +620,7 @@ function processPartNumbers(queryResults, existingPartsMap) {
   const insertionList = [];
   queryResults.forEach((pn) => {
     const oldPNData = existingPartsMap.get(pn.part_number);
+    // the part number exists in the db if it gets past this
     if (oldPNData) {
       let combinedPricing;
       let combinedInventory;
@@ -704,15 +717,13 @@ export async function syncCompetitors() {
   // This access token for getting total and is used as a backup
   logExceptOnTest("getting access tokens for digikey...");
   // up to 5 APIs in use at once
-  // let credentialArray = [
-  //   { id: process.env?.db_sync_01_id, secret: process.env?.db_sync_01_secret },
-  //   { id: process.env?.db_sync_02_id, secret: process.env?.db_sync_02_secret },
-  //   { id: process.env?.db_sync_03_id, secret: process.env?.db_sync_03_secret },
-  //   { id: process.env?.db_sync_04_id, secret: process.env?.db_sync_04_secret },
-  //   { id: process.env?.db_sync_05_id, secret: process.env?.db_sync_05_secret },
-  // ];
-
   let credentialArray = [
+    { id: process.env?.db_sync_01_id, secret: process.env?.db_sync_01_secret },
+    { id: process.env?.db_sync_02_id, secret: process.env?.db_sync_02_secret },
+    { id: process.env?.db_sync_03_id, secret: process.env?.db_sync_03_secret },
+    { id: process.env?.db_sync_04_id, secret: process.env?.db_sync_04_secret },
+    { id: process.env?.db_sync_05_id, secret: process.env?.db_sync_05_secret },
+    // These are the testing APIs
     {
       id: process.env?.db_sync_01_backup_id,
       secret: process.env?.db_sync_01_backup_secret,
@@ -734,6 +745,7 @@ export async function syncCompetitors() {
       secret: process.env?.db_sync_05_backup_secret,
     },
   ];
+
   // Begin processing all the access tokens
   for (let credential in credentialArray) {
     let cred = credentialArray[credential];
@@ -807,13 +819,15 @@ export async function syncCompetitors() {
       logExceptOnTest(
         `API ${api} is taking indexes ${body.Offset} - ${
           body.Offset + totalPartsHandled
-        } out of ${total - body.Offset} parts`
+        }\n${totalPartsHandled} out of ${total - initialOffset} parts`
       );
 
       logExceptOnTest(`Parts remaining on API ${api}: ${cred.isActive}`);
 
+      // create agent with connections set to the max amount of connections
+
       pns.push(
-        ...(await retrieveResistorPNs(
+        retrieveResistorPNs(
           cred.accessToken,
           body,
           60000,
@@ -822,11 +836,11 @@ export async function syncCompetitors() {
           api,
           cred.id,
           accessToken
-        ))
+        )
       );
 
       // Explicitly modify the body offset so the indexes are correctly ordered
-      // body.Offset += totalPartsHandled;
+      body.Offset += totalPartsHandled;
     } catch (error) {
       console.error(`Error retrieving resistor PNs ${error}`);
       return null;

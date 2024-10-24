@@ -241,7 +241,7 @@ schedule("0 11 * * *", async () => {
 });
 
 // Test for deployment
-schedule("20 18 * * *", async () => {
+schedule("40 18 * * *", async () => {
   try {
     await handleCompetitorRefresh();
   } catch (error) {

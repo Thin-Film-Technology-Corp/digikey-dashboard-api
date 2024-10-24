@@ -3,7 +3,13 @@ import { config } from "dotenv";
 config();
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-async function getDigiKeyCookies(userName, pass, retries = 3) {
+function logExceptOnTest(string) {
+  if (process.env.NODE_ENV !== "test") {
+    console.log(string);
+  }
+}
+
+export async function getDigiKeyCookies(userName, pass, retries = 3) {
   try {
     if (retries <= 0) {
       throw new Error("Exceeded maximum retries to get DigiKey cookies.");
@@ -13,7 +19,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
     let encodedPass = encodeURIComponent(pass).replace(/!/g, "%21");
 
     // Step 1: Initialize Authentication
-    console.log(`connecting to https://supplier.digikey.com/`);
+    logExceptOnTest(`connecting to https://supplier.digikey.com/`);
     const initializeAuth = await fetch("https://supplier.digikey.com/", {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -28,7 +34,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
     }
 
     // Step 2: Redirect to a login page
-    console.log(`connecting to ${oauthURL}`);
+    logExceptOnTest(`connecting to ${oauthURL}`);
     let authLogin = await fetch(oauthURL, {
       headers: {
         cookie: authCookies.join("; "),
@@ -43,7 +49,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
     }
 
     // Step 3: Use login page with nonce and new cookies to send credentials
-    console.log(`connecting to ${authPingURL}`);
+    logExceptOnTest(`connecting to ${authPingURL}`);
     let authPingResult = await fetch(authPingURL, {
       headers: {
         "content-type": "application/x-www-form-urlencoded",
@@ -67,7 +73,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
       throw new Error("Failed to retrieve supplierAuthURL from authPingResult");
     }
 
-    console.log(`connecting to ${supplierAuthURL}`);
+    logExceptOnTest(`connecting to ${supplierAuthURL}`);
     let supplierAuth = await fetch(supplierAuthURL, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -86,7 +92,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
       );
     }
 
-    console.log(`connecting to ${supplierSessionURL}`);
+    logExceptOnTest(`connecting to ${supplierSessionURL}`);
     let supplierSession = await fetch(supplierSessionURL, {
       headers: {
         cookie: authCookies.join("; "),
@@ -95,7 +101,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
       redirect: "manual",
     });
 
-    console.log(`connecting to https://supplier.digikey.com/login`);
+    logExceptOnTest(`connecting to https://supplier.digikey.com/login`);
     let supplierLogin = await fetch("https://supplier.digikey.com/login", {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -109,7 +115,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
       throw new Error("Failed to retrieve supplierLoginURL from supplierLogin");
     }
 
-    console.log(`connecting to ${supplierLoginURL}`);
+    logExceptOnTest(`connecting to ${supplierLoginURL}`);
     let apiOauth = await fetch(supplierLoginURL, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -124,7 +130,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
       throw new Error("Failed to retrieve apiRedirectURL from apiOauth");
     }
 
-    console.log(`connecting to ${apiRedirectURL}`);
+    logExceptOnTest(`connecting to ${apiRedirectURL}`);
     let apiRedirect = await fetch(apiRedirectURL, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -143,7 +149,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
       throw new Error("Failed to retrieve apiCodeURL from apiRedirect");
     }
 
-    console.log(`connecting to ${apiCodeURL}`);
+    logExceptOnTest(`connecting to ${apiCodeURL}`);
     let apiCode = await fetch(apiCodeURL, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -157,7 +163,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
       throw new Error("Failed to retrieve supplierCallBackURL from apiCode");
     }
 
-    console.log(`connecting to ${supplierCallBackURL}`);
+    logExceptOnTest(`connecting to ${supplierCallBackURL}`);
     let supplierCallBack = await fetch(supplierCallBackURL, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -176,7 +182,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
   } catch (error) {
     console.error(`Error in getDigiKeyCookies: ${error.message}`);
     if (retries > 1) {
-      console.log(`Retrying... (${retries - 1} retries left)`);
+      logExceptOnTest(`Retrying... (${retries - 1} retries left)`);
       return await getDigiKeyCookies(userName, pass, retries - 1);
     } else {
       throw new Error("Failed to get DigiKey cookies after multiple retries.");
@@ -184,7 +190,7 @@ async function getDigiKeyCookies(userName, pass, retries = 3) {
   }
 }
 
-function getNonceFromLoginPage(pageHTML) {
+export function getNonceFromLoginPage(pageHTML) {
   try {
     let authPingCodeRegex = /\/as\/([^\/]+)\/resume\/as\/authorization\.ping/gm;
     let authPingCodeMatch = authPingCodeRegex.exec(pageHTML);
@@ -201,7 +207,7 @@ function getNonceFromLoginPage(pageHTML) {
   }
 }
 
-async function getTokenForMicroStrategy(
+export async function getTokenForMicroStrategy(
   supplierCookies,
   authCookies,
   userName,
@@ -213,7 +219,7 @@ async function getTokenForMicroStrategy(
       throw new Error("Exceeded maximum retries to get token.");
     }
 
-    console.log(`connecting to https://supplier.digikey.com/reporting`);
+    logExceptOnTest(`connecting to https://supplier.digikey.com/reporting`);
     let reportingSID = await fetch("https://supplier.digikey.com/reporting", {
       headers: {
         cookie: supplierCookies.join("; "),
@@ -228,7 +234,9 @@ async function getTokenForMicroStrategy(
       ...reportingSID.headers.getSetCookie(),
     ];
 
-    console.log(`connecting to https://supplier.digikey.com/reporting/login`);
+    logExceptOnTest(
+      `connecting to https://supplier.digikey.com/reporting/login`
+    );
     let reportingOAuth = await fetch(
       "https://supplier.digikey.com/reporting/login",
       {
@@ -250,7 +258,7 @@ async function getTokenForMicroStrategy(
       );
     }
 
-    console.log(`connecting to ${reportingOAuthLocation}`);
+    logExceptOnTest(`connecting to ${reportingOAuthLocation}`);
     let authCodeChallenge = await fetch(reportingOAuthLocation, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -269,7 +277,7 @@ async function getTokenForMicroStrategy(
       );
     }
 
-    console.log(`connecting to ${authCodeChallengeLocation}`);
+    logExceptOnTest(`connecting to ${authCodeChallengeLocation}`);
     let supplierTokenRequest = await fetch(authCodeChallengeLocation, {
       headers: {
         "Access-Control-Expose-Headers": "Location",
@@ -283,8 +291,8 @@ async function getTokenForMicroStrategy(
       supplierTokenRequest.headers.get("location") != "/reporting/fail"
     ) {
       let token = supplierTokenRequest.headers.get("location").split("=")[1];
-      console.log(supplierTokenRequest.headers.get("location"));
-      console.log(`Token extracted: ${token}`);
+      logExceptOnTest(supplierTokenRequest.headers.get("location"));
+      logExceptOnTest(`Token extracted: ${token}`);
       if (!token) {
         console.warn("Token not found, retrying...");
         return await getTokenForMicroStrategy(
@@ -313,7 +321,7 @@ async function getTokenForMicroStrategy(
   } catch (error) {
     console.error(`Error in getTokenForMicroStrategy: ${error.message}`);
     if (retries > 1) {
-      console.log(`Retrying... (${retries - 1} retries left)`);
+      logExceptOnTest(`Retrying... (${retries - 1} retries left)`);
       return await getTokenForMicroStrategy(
         supplierCookies,
         authCookies,
@@ -325,7 +333,7 @@ async function getTokenForMicroStrategy(
   }
 }
 
-async function getMicroStrategySession(token, retries = 5) {
+export async function getMicroStrategySession(token, retries = 5) {
   try {
     if (retries <= 0) {
       throw new Error("Exceeded maximum retries to get MicroStrategy session.");
@@ -359,7 +367,7 @@ async function getMicroStrategySession(token, retries = 5) {
   } catch (error) {
     console.error(`Error in getMicroStrategySession: ${error.message}`);
     if (retries > 1) {
-      console.log(`Retrying... (${retries - 1} retries left)`);
+      logExceptOnTest(`Retrying... (${retries - 1} retries left)`);
       return await getMicroStrategySession(token, retries - 1);
     } else {
       throw new Error(
@@ -403,7 +411,7 @@ export async function microstrategySessionCredentials(
   } catch (error) {
     console.error(`Error in microstrategySessionCredentials: ${error.message}`);
     if (retries > 1) {
-      console.log(`Retrying... (${retries - 1} retries left)`);
+      logExceptOnTest(`Retrying... (${retries - 1} retries left)`);
       return await microstrategySessionCredentials(userName, pass, retries - 1);
     } else {
       throw new Error(
@@ -417,5 +425,5 @@ export async function microstrategySessionCredentials(
 //   process.env.digikey_username,
 //   process.env.digikey_password
 // ).then((cookies) => {
-//   console.log(cookies);
+//   logExceptOnTest(cookies);
 // });

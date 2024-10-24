@@ -11,12 +11,21 @@ import {
   convertMongoDataToCSV,
   syncMongoPartData,
   converPartDataToCSV,
+  retrieveMongoPartData,
+  flattenPartData,
 } from "./mongoOperation.js";
-import { getAllPartsInDigikeySearchV4 } from "./digiKeyAPI.js";
+import { handleCompetitorRefresh } from "./competitor_syncing/competitorSync.js";
+import { syncCompetitors } from "./competitor_syncing/competitorSync.js";
 
 const app = express();
 
 config();
+
+function logExceptOnTest(string) {
+  if (process.env.NODE_ENV !== "test") {
+    console.log(string);
+  }
+}
 
 app.use(json());
 app.use(helmet());
@@ -51,7 +60,7 @@ const getSessionCredentials = async (retries = 3) => {
       throw new Error("Exceeded maximum retries to fetch session credentials.");
     }
 
-    console.log("Fetching new session credentials...");
+    logExceptOnTest("Fetching new session credentials...");
     const sessionObj = await microstrategySessionCredentials(
       process.env.digikey_username,
       process.env.digikey_password
@@ -65,7 +74,7 @@ const getSessionCredentials = async (retries = 3) => {
   } catch (error) {
     console.error(`Error in getSessionCredentials: ${error.message}`);
     if (retries > 1) {
-      console.log(`Retrying... (${retries - 1} retries left)`);
+      logExceptOnTest(`Retrying... (${retries - 1} retries left)`);
       return await getSessionCredentials(retries - 1);
     } else {
       throw new Error(
@@ -78,9 +87,9 @@ const getSessionCredentials = async (retries = 3) => {
 app.get("/csv/sales", authorize, async (req, res) => {
   let csvData;
   try {
-    console.log("getting sales data from mongo...");
+    logExceptOnTest("getting sales data from mongo...");
     let salesData = await retrieveMongoSalesData();
-    console.log("converting sales data to csv...");
+    logExceptOnTest("converting sales data to csv...");
     csvData = await convertMongoDataToCSV(salesData);
   } catch (error) {
     console.error(
@@ -94,13 +103,15 @@ app.get("/csv/sales", authorize, async (req, res) => {
     "Content-Disposition",
     `attachment; filename="digikey_sales_report.csv"`
   );
-  console.log("sending csv...");
+  logExceptOnTest("sending csv...");
   res.status(200).send(csvData).end();
 });
 
 // send all mongo parts
 app.get("/csv/parts", authorize, async (req, res) => {
-  let csv = await converPartDataToCSV();
+  const partData = await retrieveMongoPartData();
+  const flattenedData = flattenPartData(partData);
+  const csv = converPartDataToCSV(flattenedData);
 
   res.setHeader("Content-Type", "text/csv");
   res.setHeader(
@@ -114,7 +125,7 @@ app.get("/csv/:document", authorize, async (req, res) => {
   const paths = ["inventory", "fees", "billing"];
 
   if (!paths.includes(req.params.document)) {
-    console.log(`Document not described ${req.params.document}`);
+    logExceptOnTest(`Document not described ${req.params.document}`);
     res.status(400).end("Bad request");
     return;
   }
@@ -124,18 +135,18 @@ app.get("/csv/:document", authorize, async (req, res) => {
 
   const getCsvData = async () => {
     try {
-      console.log("Retrieving session information...");
+      logExceptOnTest("Retrieving session information...");
       if (!sessionObj) {
         sessionObj = await getSessionCredentials();
       }
-      console.log("Using session information...");
+      logExceptOnTest("Using session information...");
 
       const csvBuffer = await csvRequest(
         sessionObj.sessionCookies,
         sessionObj.authToken,
         req.params.document
       );
-      console.log("Retrieved CSV data...");
+      logExceptOnTest("Retrieved CSV data...");
 
       const csv = csvBuffer.toString("utf-8");
       res.setHeader("Content-Type", "text/csv");
@@ -143,17 +154,17 @@ app.get("/csv/:document", authorize, async (req, res) => {
         "Content-Disposition",
         `attachment; filename="digikey_${req.params.document}_report.csv"`
       );
-      console.log("Sending CSV data...");
+      logExceptOnTest("Sending CSV data...");
       res.status(200).send(csv).end();
     } catch (error) {
-      console.log(`Error getting CSVs: ${error.message} \n${error.stack}`);
+      logExceptOnTest(`Error getting CSVs: ${error.message} \n${error.stack}`);
       if (error.statusCode === 401 && retries < maxRetries) {
         retries++;
-        console.log("Session expired. Fetching new session credentials...");
+        logExceptOnTest("Session expired. Fetching new session credentials...");
         sessionObj = await getSessionCredentials();
         return getCsvData(); // Retry with new session credentials
       } else if (error.statusCode === 401 && retries >= maxRetries) {
-        console.log("Received request while authorizing!");
+        logExceptOnTest("Received request while authorizing!");
         return res
           .status(503)
           .end("Please wait for authorization before attempting again");
@@ -168,11 +179,11 @@ app.get("/csv/:document", authorize, async (req, res) => {
 
 app.patch("/sync_mongo_data", authorize, async (req, res) => {
   try {
-    console.log("Refreshing MongoDB data from sales API...");
+    logExceptOnTest("Refreshing MongoDB data from sales API...");
     await syncMongoSalesData(); // refresh mongo data
-    console.log("\ncompleted!\n\nRefreshing MongoDB data from part API...");
+    logExceptOnTest("\ncompleted!\n\nRefreshing MongoDB data from part API...");
     await syncMongoPartData();
-    console.log("completed!");
+    logExceptOnTest("completed!");
     return res.status(200).end();
   } catch (error) {
     console.error(
@@ -182,9 +193,19 @@ app.patch("/sync_mongo_data", authorize, async (req, res) => {
   }
 });
 
+app.patch("/sync_comp_db/chip_resistor", authorize, async (req, res) => {
+  try {
+    await syncCompetitors();
+    return res.status(200).end();
+  } catch (error) {
+    console.log(error);
+    return res.status(500).end();
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Server is listening on port ${port}`);
+  logExceptOnTest(`Server is listening on port ${port}`);
 });
 
 // Cron job format explanation
@@ -202,14 +223,30 @@ app.listen(port, () => {
 schedule("0 11 * * *", async () => {
   // Schedule a task every day at 6 AM
   try {
-    console.log("Refreshing MongoDB data from sales API...");
+    logExceptOnTest("Refreshing MongoDB data from sales API...");
     await syncMongoSalesData(); // refresh mongo data
-    console.log("\ncompleted!\n\nRefreshing MongoDB data from part API...");
+    logExceptOnTest("\ncompleted!\n\nRefreshing MongoDB data from part API...");
     await syncMongoPartData();
-    console.log("completed!");
+    logExceptOnTest("completed!");
   } catch (error) {
     console.error(
       `Error while completing scheduled refresh of Mongo data:: ${error} \n${error.stack}`
     );
   }
+  try {
+    await handleCompetitorRefresh();
+  } catch (error) {
+    console.error(`competitor refresh failed: ${error}\n${error.stack}`);
+  }
 });
+
+// Test for deployment
+schedule("20 18 * * *", async () => {
+  try {
+    await handleCompetitorRefresh();
+  } catch (error) {
+    console.error(`competitor refresh failed: ${error}\n${error.stack}`);
+  }
+});
+
+export default app;

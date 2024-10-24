@@ -731,7 +731,7 @@ async function checkAPIAccess(clientId, accessToken) {
 
 // Abstraction that calls the functions in their order
 // Connects to mongoDB and makes the additions
-export async function syncCompetitors() {
+async function syncCompetitors() {
   let body = {
     Keywords: "Resistor",
     Limit: 50,
@@ -926,6 +926,9 @@ export async function syncCompetitors() {
     await dkChipResistor.bulkWrite(operations.bulkOp);
   }
 
+  writeFileSync("./temp/most_recent_pns", JSON.stringify(pns));
+  writeFileSync("./temp/most_recent_operation", JSON.stringify(operations));
+
   logExceptOnTest(
     `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
   );
@@ -972,16 +975,13 @@ async function findDuplicatePartNumbers(isDeleteDuplicates, collection) {
   return duplicates;
 }
 
-// findDuplicatePartNumbers(false).then((data) => console.log(data));
-
-if (!isMainThread) {
-  const { partNumbers, existingPartsMap } = workerData;
-  const existingPartsMapObj = new Map(existingPartsMap);
-  const result = processPartNumbers(partNumbers, existingPartsMapObj);
-  parentPort.postMessage(result);
-} else {
-  // TODO: handle 429 codes (30 second timeout)
-  syncCompetitors().then((data) => {
-    // logExceptOnTest(data)
-  });
+export async function handleCompetitorRefresh() {
+  if (!isMainThread) {
+    const { partNumbers, existingPartsMap } = workerData;
+    const existingPartsMapObj = new Map(existingPartsMap);
+    const result = processPartNumbers(partNumbers, existingPartsMapObj);
+    parentPort.postMessage(result);
+  } else {
+    await syncCompetitors();
+  }
 }

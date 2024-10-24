@@ -14,7 +14,7 @@ import {
   retrieveMongoPartData,
   flattenPartData,
 } from "./mongoOperation.js";
-import { getAllPartsInDigikeySearchV4 } from "./digiKeyAPI.js";
+import { handleCompetitorRefresh } from "./competitor_syncing/competitorSync.js";
 import { syncCompetitors } from "./competitor_syncing/competitorSync.js";
 
 const app = express();
@@ -232,6 +232,11 @@ schedule("0 11 * * *", async () => {
     console.error(
       `Error while completing scheduled refresh of Mongo data:: ${error} \n${error.stack}`
     );
+  }
+  try {
+    await handleCompetitorRefresh();
+  } catch (error) {
+    console.error(`competitor refresh failed: ${error}\n${error.stack}`);
   }
 });
 

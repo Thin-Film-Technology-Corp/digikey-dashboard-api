@@ -240,4 +240,13 @@ schedule("0 11 * * *", async () => {
   }
 });
 
+// Test for deployment
+schedule("20 18 * * *", async () => {
+  try {
+    await handleCompetitorRefresh();
+  } catch (error) {
+    console.error(`competitor refresh failed: ${error}\n${error.stack}`);
+  }
+});
+
 export default app;

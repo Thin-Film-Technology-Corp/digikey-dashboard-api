@@ -33,6 +33,11 @@ async function fetchWithRetries(url, options, retries = 3) {
       // console.log(
       //   `There was an error fetching with retries: ${response.status}\n${response.statusText}`
       // );
+      errorArray.push({
+        type: "http response fail",
+        code: response.status,
+        message: response.statusText,
+      });
     }
     retries--;
   }
@@ -89,6 +94,12 @@ async function bulkRemediation(arrOfPNs, body, accessToken, clientId) {
         .then((res) => {
           if (!res.ok) {
             // add index of redo to redo array
+            errorArray.push({
+              type: "http response fail",
+              code: res.status,
+              message: res.statusText,
+              index: r.index,
+            });
             redos.push(r.index);
             throw new Error(
               `promise for part numbering failed!\n${res.status}`
@@ -101,6 +112,10 @@ async function bulkRemediation(arrOfPNs, body, accessToken, clientId) {
           return { ...d, index: r.index };
         })
         .catch((error) => {
+          errorArray.push({
+            type: "general error",
+            message: error,
+          });
           // console.error("Error processing request:", error);
           // add index of redo to redo array
           redos.push(r.index);
@@ -120,7 +135,8 @@ async function remediatePNs(
   burstLimit,
   burstReset,
   clientId,
-  fixedBatches
+  fixedBatches,
+  errorArray
 ) {
   let retArr = [];
   let failCount = 0;
@@ -153,7 +169,8 @@ async function remediatePNs(
       redoSlice,
       body,
       accessToken,
-      clientId
+      clientId,
+      errorArray
     );
     retArr.push(...remediatedPNs);
 
@@ -214,8 +231,10 @@ async function retrieveBurstLimit(
   markers = markers || new Map([]);
   for (let i = 0; i < burstLimit; i++) {
     try {
+      // Clone inside the loop to create a new instance for each iteration (saving a snapshot)
+      let currentBody = structuredClone(containedBody);
       promiseArray.push({
-        index: containedBody.Offset,
+        index: currentBody.Offset,
         data: limit(() =>
           fetch("https://api.digikey.com/products/v4/search/keyword", {
             headers: {
@@ -224,12 +243,12 @@ async function retrieveBurstLimit(
               "Content-Type": "application/json",
             },
             method: "POST",
-            body: JSON.stringify(containedBody),
+            body: JSON.stringify(currentBody),
           })
         ),
       });
       // markers array is added to after promise is added to array
-      markers.set(containedBody.Offset, true);
+      markers.set(currentBody.Offset, true);
       containedBody.Offset += containedBody.Limit;
     } catch (error) {
       console.error(
@@ -239,6 +258,7 @@ async function retrieveBurstLimit(
       containedBody.Offset += containedBody.Limit;
     }
   }
+
   return [promiseArray, markers];
 }
 
@@ -251,26 +271,12 @@ export async function retrieveResistorPNs(
   total,
   apiIndex,
   client_id,
-  remediationToken
+  remediationToken,
+  errorArray
 ) {
   let promiseArray = [];
   let markers = new Map();
   let redos = [];
-
-  // API index is just for debugging
-  apiIndex = apiIndex || "null";
-  // 240 requests within time frame
-
-  burstLimit = burstLimit || 238;
-  const partsPerAPI = total - body.Offset;
-  // if parts per api is less than the burst limit * 50 set the burst limit to the parts per api / 50
-  if (partsPerAPI < burstLimit * 50) {
-    burstLimit = Math.ceil(partsPerAPI / 50);
-  }
-
-  // 15 second reset
-  burstReset = burstReset || 15000;
-
   body = body || {
     Keywords: "Resistor",
     Limit: 50,
@@ -289,11 +295,25 @@ export async function retrieveResistorPNs(
       SortOrder: "Ascending",
     },
   };
-
+  let bodyClone = structuredClone(body);
   const initialOffset = structuredClone(body.Offset);
 
-  const totalBatches = total / body.Limit; // total = 31,000 and limit = 50 so 620
-  const completedBatches = body.Offset / body.Limit; // Offset = 0 and Limit = 50 so 0
+  // API index is just for debugging
+  apiIndex = apiIndex || "null";
+  // 240 requests within time frame
+
+  burstLimit = burstLimit || 238;
+  const partsPerAPI = total - bodyClone.Offset;
+  // if parts per api is less than the burst limit * 50 set the burst limit to the parts per api / 50
+  if (partsPerAPI < burstLimit * 50) {
+    burstLimit = Math.ceil(partsPerAPI / 50);
+  }
+
+  // 15 second reset
+  burstReset = burstReset || 15000;
+
+  const totalBatches = total / bodyClone.Limit; // total = 31,000 and limit = 50 so 620
+  const completedBatches = bodyClone.Offset / bodyClone.Limit; // Offset = 0 and Limit = 50 so 0
   const numberOfBatches = Math.ceil(totalBatches - completedBatches); // 620
   const numberOfBursts = Math.ceil(numberOfBatches / burstLimit); // 620 / 238 = 3 (2.6)
   logExceptOnTest(
@@ -304,7 +324,7 @@ export async function retrieveResistorPNs(
     for (let i = 0; i < numberOfBursts; i++) {
       try {
         if (i > 0) {
-          console.log(`${burstReset / 1000} second timeout...`);
+          logExceptOnTest(`${burstReset / 1000} second timeout...`);
           await new Promise((resolve) =>
             setTimeout(resolve, burstReset + 1000)
           );
@@ -319,7 +339,7 @@ export async function retrieveResistorPNs(
       try {
         let burstLimitData = await retrieveBurstLimit(
           accessToken,
-          body,
+          bodyClone,
           burstLimit,
           markers,
           client_id
@@ -346,6 +366,12 @@ export async function retrieveResistorPNs(
               if (!res.ok) {
                 // set marker to false for revision
                 markers.set(r.index, false);
+                errorArray.push({
+                  type: "http response fail",
+                  code: res.status,
+                  message: res.statusText,
+                  index: r.index,
+                });
                 throw new Error(
                   `promise for part numbering failed!\n${res.status}`
                 );
@@ -360,6 +386,10 @@ export async function retrieveResistorPNs(
             })
             .catch((error) => {
               // console.error("Error processing request:", error);
+              errorArray.push({
+                type: "general error",
+                message: error,
+              });
               // set marker to false for revision
               markers.set(r.index, false);
               // Return a default value or handle the error in a way that doesn't break the Promise.all
@@ -373,7 +403,7 @@ export async function retrieveResistorPNs(
     // Validate that we got all of our information
     // Check if length matches number of batches or if any marker is set to negative
 
-    console.log(
+    logExceptOnTest(
       `PNs length: ${pns.length}\nExpected length: ${
         total - initialOffset
       }\nDoes markers include false values: ${[...markers.values()].includes(
@@ -388,7 +418,7 @@ export async function retrieveResistorPNs(
         markers,
         initialOffset,
         total,
-        body.Limit
+        bodyClone.Limit
       );
       redos.push(...validatedRedos);
 
@@ -398,12 +428,13 @@ export async function retrieveResistorPNs(
         let fixedBatches = 0;
         additionalPNs = await remediatePNs(
           redos,
-          body,
+          bodyClone,
           remediationToken,
           burstLimit,
           burstReset,
           process.env.clientId,
-          fixedBatches
+          fixedBatches,
+          errorArray
         );
       } catch (error) {
         console.error(error);
@@ -521,9 +552,11 @@ function structurePNs(originalData) {
 }
 
 function compareHashes(newData, oldData) {
-  if (newData[0].hash !== oldData[0].hash) {
-    oldData.push(newData[0]);
-  }
+  newData.forEach((newItem) => {
+    if (!oldData.some((oldItem) => oldItem.hash === newItem.hash)) {
+      oldData.push(newItem);
+    }
+  });
   return oldData;
 }
 
@@ -620,6 +653,10 @@ function processPartNumbers(queryResults, existingPartsMap) {
   const insertionList = [];
   queryResults.forEach((pn) => {
     const oldPNData = existingPartsMap.get(pn.part_number);
+    // console.log(
+    //   `Here's where the old map has the part number ${pn.part_number}: ${oldPNData}`
+    // );
+
     // the part number exists in the db if it gets past this
     if (oldPNData) {
       let combinedPricing;
@@ -697,8 +734,8 @@ async function checkAPIAccess(clientId, accessToken) {
 export async function syncCompetitors() {
   let body = {
     Keywords: "Resistor",
-    Limit: 1,
-    Offset: 0,
+    Limit: 50,
+    Offset: 120000,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -709,10 +746,13 @@ export async function syncCompetitors() {
     },
     ExcludeMarketPlaceProducts: false,
     SortOptions: {
-      Field: "None",
+      Field: "ManufacturerProductNumber",
       SortOrder: "Ascending",
     },
   };
+
+  // This accumulates all of our errors and writes them to a log file in ./temp
+  let errorArray = [];
 
   // This access token for getting total and is used as a backup
   logExceptOnTest("getting access tokens for digikey...");
@@ -797,6 +837,8 @@ export async function syncCompetitors() {
     try {
       let cred = operatingAPIs[api];
       let totalPartsHandled;
+      // prevent api from modifying source body
+      let apiBody = structuredClone(body);
 
       // if this api can't handle all requests given to it, add those to the floating PNs and give them to another
       if (cred.isActive < partsPerAPI) {
@@ -829,13 +871,14 @@ export async function syncCompetitors() {
       pns.push(
         retrieveResistorPNs(
           cred.accessToken,
-          body,
+          apiBody,
           60000,
           120,
           body.Offset + totalPartsHandled,
           api,
           cred.id,
-          accessToken
+          accessToken,
+          errorArray
         )
       );
 
@@ -843,6 +886,8 @@ export async function syncCompetitors() {
       body.Offset += totalPartsHandled;
     } catch (error) {
       console.error(`Error retrieving resistor PNs ${error}`);
+      logExceptOnTest("writing error log to ./temp/retrieval_errors.json");
+      writeFileSync("./temp/retrieval_errors.json", JSON.stringify(errorArray));
       return null;
     }
   }
@@ -850,6 +895,9 @@ export async function syncCompetitors() {
   logExceptOnTest("retrieving all Chip Resistors from Digikey...");
 
   pns = (await Promise.all(pns)).flat();
+
+  logExceptOnTest("writing error log to ./temp/retrieval_errors.json");
+  writeFileSync("./temp/retrieval_errors.json", JSON.stringify(errorArray));
 
   // writeFileSync("./temp/checkOnParts.json", JSON.stringify(pns));
 
@@ -882,19 +930,29 @@ export async function syncCompetitors() {
     `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
   );
 
+  // TODO: move this to the pn stage so we aren''t sendinf redundant info
+  logExceptOnTest(`Cleaning up...`);
+  const duplicates = await findDuplicatePartNumbers(true, dkChipResistor);
+  logExceptOnTest(
+    `${duplicates.length} part number duplicates found and removed`
+  );
+
   logExceptOnTest("closing client...");
   await client.close();
 }
 
-async function findDuplicatePartNumbers() {
-  const client = new MongoClient(
-    process.env.competitor_database_connection_string
-  );
-  await client.connect();
-  const db = client.db("CompetitorDBInstance");
-  const dkChipResistor = db.collection("dk_chip_resistor");
+async function findDuplicatePartNumbers(isDeleteDuplicates, collection) {
+  let client;
+  if (!collection) {
+    const client = new MongoClient(
+      process.env.competitor_database_connection_string
+    );
+    await client.connect();
+    const db = client.db("CompetitorDBInstance");
+    collection = db.collection("dk_chip_resistor");
+  }
 
-  const duplicates = await dkChipResistor
+  const duplicates = await collection
     .aggregate([
       { $group: { _id: "$part_number", count: { $sum: 1 } } },
       { $match: { count: { $gt: 1 } } },
@@ -902,10 +960,19 @@ async function findDuplicatePartNumbers() {
     ])
     .toArray();
 
-  await client.close();
+  if (isDeleteDuplicates) {
+    const duplicatePartNumbers = duplicates.map((doc) => doc.part_number);
+    await collection.deleteMany({
+      part_number: { $in: duplicatePartNumbers },
+    });
+  }
+
+  await client?.close();
 
   return duplicates;
 }
+
+// findDuplicatePartNumbers(false).then((data) => console.log(data));
 
 if (!isMainThread) {
   const { partNumbers, existingPartsMap } = workerData;

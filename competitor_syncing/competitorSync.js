@@ -62,7 +62,13 @@ function validatePNs(markers, initialOffset, total, limit) {
 }
 
 // remediates pns in a batch format, distinct from retrievepns function because it doesn't necesarily go sequentially (maybe we could change that about retrieve resistor pns to consolidate these and make it recursive)
-async function bulkRemediation(arrOfPNs, body, accessToken, clientId) {
+async function bulkRemediation(
+  arrOfPNs,
+  body,
+  accessToken,
+  clientId,
+  errorArray
+) {
   let redos = [];
   let pns = [];
   let promiseArray = [];
@@ -736,7 +742,9 @@ async function checkAPIAccess(clientId, accessToken) {
 // Abstraction that calls the functions in their order
 // Connects to mongoDB and makes the additions
 async function syncCompetitors(offset) {
-  offset = offset || 122000;
+  if (offset !== 0) {
+    offset = offset || 122000;
+  }
   let body = {
     Keywords: "Resistor",
     Limit: 50,

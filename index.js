@@ -15,6 +15,7 @@ import {
   flattenPartData,
 } from "./mongoOperation.js";
 import { handleCompetitorRefresh } from "./competitor_syncing/competitorSync.js";
+import { MongoClient } from "mongodb";
 
 const app = express();
 
@@ -202,6 +203,16 @@ app.patch("/sync_comp_db/chip_resistor", authorize, async (req, res) => {
   }
 });
 
+app.patch("/test/sync_competitor_db", authorize, async (req, res) => {
+  try {
+    await handleCompetitorRefresh(122000);
+    res.status(200).end();
+  } catch (error) {
+    console.error(`error occurred on /test/sync_competitor_db: ${error}`);
+    res.status(500).end(`Error occurred!`);
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   logExceptOnTest(`Server is listening on port ${port}`);
@@ -233,16 +244,7 @@ schedule("0 11 * * *", async () => {
     );
   }
   try {
-    await handleCompetitorRefresh();
-  } catch (error) {
-    console.error(`competitor refresh failed: ${error}\n${error.stack}`);
-  }
-});
-
-// Test for deployment
-schedule("40 18 * * *", async () => {
-  try {
-    await handleCompetitorRefresh();
+    await handleCompetitorRefresh(0);
   } catch (error) {
     console.error(`competitor refresh failed: ${error}\n${error.stack}`);
   }

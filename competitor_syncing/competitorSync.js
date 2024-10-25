@@ -8,9 +8,10 @@ import {
   parentPort,
   workerData,
 } from "node:worker_threads";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { fileURLToPath } from "url";
 import pLimit from "p-limit";
+import path from "path";
 
 // limits the max amount of concurrent connections being made
 const limit = pLimit(15);
@@ -568,9 +569,12 @@ export async function compareQueryToDatabase(
   database,
   coreCount
 ) {
-  let testFile =
-    readFileSync("./temp/results.csv").toString() ||
-    '"core count","elapsed time","number of parts","parts / ms"';
+  let testFile;
+  if (existsSync("./temp/results.csv")) {
+    testFile = readFileSync("./temp/results.csv").toString();
+  } else {
+    testFile = '"core count","elapsed time","number of parts","parts / ms"';
+  }
 
   const startTime = Date.now();
   coreCount = coreCount || 1;
@@ -731,11 +735,12 @@ async function checkAPIAccess(clientId, accessToken) {
 
 // Abstraction that calls the functions in their order
 // Connects to mongoDB and makes the additions
-async function syncCompetitors() {
+async function syncCompetitors(offset) {
+  offset = offset || 122000;
   let body = {
     Keywords: "Resistor",
     Limit: 50,
-    Offset: 120000,
+    Offset: offset,
     FilterOptionsRequest: {
       ManufacturerFilter: [],
       MinimumQuantityAvailable: 1,
@@ -896,10 +901,11 @@ async function syncCompetitors() {
 
   pns = (await Promise.all(pns)).flat();
 
-  logExceptOnTest("writing error log to ./temp/retrieval_errors.json");
+  logExceptOnTest(
+    "writing error log to ./temp/retrieval_errors.json and refreshing local cache of parts..."
+  );
   writeFileSync("./temp/retrieval_errors.json", JSON.stringify(errorArray));
-
-  // writeFileSync("./temp/checkOnParts.json", JSON.stringify(pns));
+  writeFileSync("./temp/checkOnParts.json", JSON.stringify(pns));
 
   if (pns.length < 1) {
     console.log(
@@ -926,8 +932,11 @@ async function syncCompetitors() {
     await dkChipResistor.bulkWrite(operations.bulkOp);
   }
 
-  writeFileSync("./temp/most_recent_pns", JSON.stringify(pns));
-  writeFileSync("./temp/most_recent_operation", JSON.stringify(operations));
+  writeFileSync("./temp/most_recent_pns.json", JSON.stringify(pns));
+  writeFileSync(
+    "./temp/most_recent_operation.json",
+    JSON.stringify(operations)
+  );
 
   logExceptOnTest(
     `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
@@ -975,13 +984,18 @@ async function findDuplicatePartNumbers(isDeleteDuplicates, collection) {
   return duplicates;
 }
 
-export async function handleCompetitorRefresh() {
-  if (!isMainThread) {
-    const { partNumbers, existingPartsMap } = workerData;
-    const existingPartsMapObj = new Map(existingPartsMap);
-    const result = processPartNumbers(partNumbers, existingPartsMapObj);
-    parentPort.postMessage(result);
-  } else {
-    await syncCompetitors();
+export async function handleCompetitorRefresh(offset) {
+  // Create temp directory if it doesnt exist
+  const tempDir = path.join(".", "temp");
+  if (!existsSync(tempDir)) {
+    mkdirSync(tempDir, { recursive: true });
   }
+  await syncCompetitors(offset);
+}
+
+if (!isMainThread) {
+  const { partNumbers, existingPartsMap } = workerData;
+  const existingPartsMapObj = new Map(existingPartsMap);
+  const result = processPartNumbers(partNumbers, existingPartsMapObj);
+  parentPort.postMessage(result);
 }

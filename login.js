@@ -2,7 +2,7 @@ import { config } from "dotenv";
 config();
 import { MongoClient } from "mongodb";
 const client = new MongoClient(process.env.part_parametric_connection_string);
-// ? Deprecated, uses puppeteer browser
+// Deprecated, uses puppeteer browser
 // export async function getDigiKeyMicroStrategySession() {
 //   let browser;
 //   console.log("starting browser...");
@@ -214,9 +214,8 @@ export async function csvRequest(cookies, authToken, document) {
     const data = await response.arrayBuffer();
     let buffer = Buffer.from(data);
 
+    // writefilesync(`./digikey_${document}_report.csv`, buffer);
     return buffer;
-
-    // fs.writeFileSync(`./digikey_${document}_report.csv`, buffer);
   } catch (error) {
     throw error;
   }

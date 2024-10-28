@@ -277,12 +277,15 @@ describe("Integration testing for syncing competitor data", async function () {
     partData = await retrieveResistorPNs(accessToken, {
       Keywords: "Resistor",
       Limit: 50,
-      Offset: 121950,
+      Offset: 105250,
       FilterOptionsRequest: {
         ManufacturerFilter: [],
         MinimumQuantityAvailable: 1,
         ParameterFilterRequest: {
-          CategoryFilter: { Id: "52", Value: "Chip Resistor - Surface Mount" },
+          CategoryFilter: {
+            Id: "52",
+            Value: "Chip Resistor - Surface Mount",
+          },
         },
         StatusFilter: [{ Id: 0, Value: "Active" }],
       },
@@ -292,6 +295,7 @@ describe("Integration testing for syncing competitor data", async function () {
         SortOrder: "Ascending",
       },
     });
+    await Promise.all(partData);
     expect(partData).to.be.an("array");
     expect(partData[0]).to.have.all.keys(
       "product_description",

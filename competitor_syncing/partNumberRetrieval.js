@@ -2,6 +2,7 @@ import { validatePNs, remediatePNs } from "./partNumberRemediation.js";
 import { structurePNs } from "./partNumberStructuring.js";
 import pLimit from "p-limit";
 import { config } from "dotenv";
+import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
 config();
 
 // limits the max amount of concurrent connections being made
@@ -46,14 +47,19 @@ export async function retrieveResistorPNs(
       SortOrder: "Ascending",
     },
   };
+  burstReset = burstReset || 15000;
+  burstLimit = burstLimit || 238;
+  apiIndex = apiIndex || "null";
+  total = total || body.Offset + 250;
+  client_id = client_id || process.env.clientId;
+  remediationToken = remediationToken || getAccessTokenForDigikeyAPI();
+  errorArray = errorArray || [];
   let bodyClone = structuredClone(body);
   const initialOffset = structuredClone(body.Offset);
 
   // API index is just for debugging
-  apiIndex = apiIndex || "null";
   // 240 requests within time frame
 
-  burstLimit = burstLimit || 238;
   const partsPerAPI = total - bodyClone.Offset;
   // if parts per api is less than the burst limit * 50 set the burst limit to the parts per api / 50
   if (partsPerAPI < burstLimit * 50) {

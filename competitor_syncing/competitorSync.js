@@ -1,14 +1,12 @@
 import { config } from "dotenv";
 import { MongoClient } from "mongodb";
 import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { fileURLToPath } from "url";
+import { writeFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { retrieveResistorPNs } from "./partNumberRetrieval.js";
+import { compareQueryToDatabase } from "./partNumberComparison.js";
 
 config();
-
-const __filename = fileURLToPath(import.meta.url);
 
 function logExceptOnTest(string) {
   if (process.env.NODE_ENV !== "test") {

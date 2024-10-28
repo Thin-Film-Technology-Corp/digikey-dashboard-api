@@ -1,4 +1,3 @@
-import request from "supertest";
 import { expect } from "chai";
 import { config } from "dotenv";
 import { describe } from "mocha";
@@ -17,10 +16,14 @@ import {
 } from "../getSessionCookies.js";
 import { csvRequest } from "../login.js";
 import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
+import { retrieveResistorPNs } from "../competitor_syncing/partNumberRetrieval.js";
 import {
-  retrieveResistorPNs,
   compareQueryToDatabase,
-} from "../competitor_syncing/competitorSync.js";
+  distributeWorkers,
+  processPartNumbers,
+  retrieveAllCompetitorDataFromMongo,
+} from "../competitor_syncing/partNumberComparison.js";
+import { readFileSync, writeFileSync } from "fs";
 config();
 
 describe("Integration testing for sales data workflow", async function () {
@@ -342,55 +345,707 @@ describe("Integration testing for syncing competitor data", async function () {
     dkChipResistor = db.collection("dk_chip_resistor");
     expect(db).to.not.be.null;
   });
-  // Compare part data with database records
-  it("Compares query results with MongoDB data", async function () {
-    const operations = await compareQueryToDatabase(partData, dkChipResistor);
-    expect(operations).to.be.an("object");
-    expect(operations).to.have.property("bulkOp").that.is.an("array");
-    expect(operations).to.have.property("insertionList").that.is.an("array");
+});
 
-    if (operations.bulkOp.length > 0) {
-      // Here you could mock `bulkWrite` if needed, but for simplicity, we'll just check the structure
-      expect(operations.bulkOp[0])
-        .to.have.property("updateOne")
-        .that.is.an("object");
-      expect(operations.bulkOp[0].updateOne).to.have.all.keys(
-        "filter",
-        "update"
-      );
-    }
+describe("Integration testing for comparing competitor database", async function () {
+  let client;
+  let dbCollection;
+  let partNumbers;
+  let existingPartsMap;
+  let testComparisonFile = JSON.parse(
+    readFileSync("./temp/most_recent_pns.json")
+  );
 
-    if (operations.insertionList.length > 0) {
-      expect(operations.insertionList[0]).to.have.all.keys(
-        "product_description",
-        "detailed_description",
-        "part_number",
-        "product_url",
-        "datasheet_url",
-        "photo_url",
-        "video_url",
-        "status",
-        "resistance",
-        "resistance_tolerance",
-        "power",
-        "composition",
-        "features",
-        "temp_coefficient",
-        "operating_temperature",
-        "digikey_case_size",
-        "case_size",
-        "ratings",
-        "dimensions",
-        "height",
-        "terminations_number",
-        "fail_rate",
-        "category",
-        "sub_category",
-        "series",
-        "classifications",
-        "pricing",
-        "inventory"
-      );
-    }
+  it("connects to mongo database", async function () {
+    this.timeout(3000);
+    client = new MongoClient(process.env.competitor_database_connection_string);
+    await client.connect();
+    const db = client.db("CompetitorDBInstance");
+    dbCollection = db.collection("dk_chip_resistor");
+    expect(dbCollection).to.not.be.null;
   });
+  it("retrieves all data from the mongo database", async function () {
+    this.timeout(20000);
+    [partNumbers, existingPartsMap] = await retrieveAllCompetitorDataFromMongo(
+      dbCollection,
+      testComparisonFile
+    );
+    expect(partNumbers).to.be.an("array");
+    expect(existingPartsMap).to.be.an("map");
+  });
+  it("worker thread functions correctly assess when to insert, modify, or ignore pricing / inventory changes", async function () {
+    // simulate 3 mongo entries
+    let mongoSimulation = new Map([
+      // [
+      //   "RM02F24R3CT",
+      //   {
+      //     _id: "671922168c26820d731d38f6",
+      //     product_description: "RES SMD 24.3 OHM 1% 1/20W 0201",
+      //     detailed_description:
+      //       "24.3 Ohms ±1% 0.05W, 1/20W Chip Resistor 0201 (0603 Metric) Thick Film",
+      //     part_number: "RM02F24R3CT",
+      //     product_url:
+      //       "https://www.digikey.com/en/products/detail/cal-chip-electronics-inc/RM02F24R3CT/13567642",
+      //     datasheet_url:
+      //       "https://calchip.com/wp-content/uploads/2023/05/rm_series.pdf",
+      //     photo_url:
+      //       "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/4029/MFG_RM_series.jpg",
+      //     video_url: "",
+      //     status: "Active",
+      //     resistance: "24.3 Ohms",
+      //     resistance_tolerance: "±1%",
+      //     power: "0.05W, 1/20W",
+      //     composition: "Thick Film",
+      //     features: ["-"],
+      //     temp_coefficient: "±200ppm/°C",
+      //     operating_temperature: "-55°C ~ 125°C",
+      //     digikey_case_size: "0201 (0603 Metric)",
+      //     case_size: "0201",
+      //     ratings: ["-"],
+      //     dimensions: '0.024" L x 0.012" W (0.60mm x 0.30mm)',
+      //     height: '0.010" (0.26mm)',
+      //     terminations_number: 2,
+      //     fail_rate: "",
+      //     category: "Resistors",
+      //     sub_category: "Chip Resistor - Surface Mount",
+      //     series: "RM",
+      //     classifications: {
+      //       ReachStatus: "REACH Unaffected",
+      //       RohsStatus: "ROHS3 Compliant",
+      //       MoistureSensitivityLevel: "1  (Unlimited)",
+      //       ExportControlClassNumber: "EAR99",
+      //       HtsusCode: "8533.21.0030",
+      //     },
+      //     pricing: [
+      //       {
+      //         tape_reel: [
+      //           {
+      //             BreakQuantity: 5000,
+      //             UnitPrice: 0.06101,
+      //             TotalPrice: 305.05,
+      //           },
+      //           {
+      //             BreakQuantity: 10000,
+      //             UnitPrice: 0.05664,
+      //             TotalPrice: 566.4,
+      //           },
+      //           {
+      //             BreakQuantity: 15000,
+      //             UnitPrice: 0.05447,
+      //             TotalPrice: 817.05,
+      //           },
+      //           {
+      //             BreakQuantity: 25000,
+      //             UnitPrice: 0.05207,
+      //             TotalPrice: 1301.75,
+      //           },
+      //           {
+      //             BreakQuantity: 35000,
+      //             UnitPrice: 0.05068,
+      //             TotalPrice: 1773.8,
+      //           },
+      //           {
+      //             BreakQuantity: 50000,
+      //             UnitPrice: 0.04934,
+      //             TotalPrice: 2467,
+      //           },
+      //           {
+      //             BreakQuantity: 125000,
+      //             UnitPrice: 0.04649,
+      //             TotalPrice: 5811.25,
+      //           },
+      //         ],
+      //         cut_tape: [
+      //           { BreakQuantity: 1, UnitPrice: 0.36, TotalPrice: 0.36 },
+      //           { BreakQuantity: 10, UnitPrice: 0.19, TotalPrice: 1.9 },
+      //           { BreakQuantity: 50, UnitPrice: 0.1304, TotalPrice: 6.52 },
+      //           { BreakQuantity: 100, UnitPrice: 0.1128, TotalPrice: 11.28 },
+      //           { BreakQuantity: 500, UnitPrice: 0.08406, TotalPrice: 42.03 },
+      //           { BreakQuantity: 1000, UnitPrice: 0.07539, TotalPrice: 75.39 },
+      //         ],
+      //         digi_reel: [],
+      //         hash: "0c50d5bd5951589cbc34f7d02dd5c707",
+      //         day: 28,
+      //         month: 10,
+      //         year: 2024,
+      //       },
+      //     ],
+      //     inventory: [
+      //       {
+      //         tape_reel: 0,
+      //         cut_tape: 4900,
+      //         digi_reel: 0,
+      //         hash: "4886247817506f34c70bc9aad0f50c0e",
+      //         day: 28,
+      //         month: 10,
+      //         year: 2024,
+      //       },
+      //     ],
+      //   },
+      // ],
+      [
+        "AddEntry",
+        {
+          _id: "671922168c26820d731d3891",
+          product_description: "RES SMD 53.6K OHM 1% 1/20W 0201",
+          detailed_description:
+            "53.6 kOhms ±1% 0.05W, 1/20W Chip Resistor 0201 (0603 Metric) Thick Film",
+          part_number: "AddEntry",
+          product_url:
+            "https://www.digikey.com/en/products/detail/cal-chip-electronics-inc/RM02F5362CT/13567384",
+          datasheet_url:
+            "https://calchip.com/wp-content/uploads/2023/05/rm_series.pdf",
+          photo_url:
+            "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/4029/MFG_RM_series.jpg",
+          video_url: "",
+          status: "Active",
+          resistance: "53.6 kOhms",
+          resistance_tolerance: "±1%",
+          power: "0.05W, 1/20W",
+          composition: "Thick Film",
+          features: ["-"],
+          temp_coefficient: "±200ppm/°C",
+          operating_temperature: "-55°C ~ 125°C",
+          digikey_case_size: "0201 (0603 Metric)",
+          case_size: "0201",
+          ratings: ["-"],
+          dimensions: '0.024" L x 0.012" W (0.60mm x 0.30mm)',
+          height: '0.010" (0.26mm)',
+          terminations_number: 2,
+          fail_rate: "",
+          category: "Resistors",
+          sub_category: "Chip Resistor - Surface Mount",
+          series: "RM",
+          classifications: {
+            ReachStatus: "REACH Unaffected",
+            RohsStatus: "ROHS3 Compliant",
+            MoistureSensitivityLevel: "1  (Unlimited)",
+            ExportControlClassNumber: "EAR99",
+            HtsusCode: "8533.21.0030",
+          },
+          pricing: [
+            {
+              tape_reel: [
+                {
+                  BreakQuantity: 5000,
+                  UnitPrice: 0.06101,
+                  TotalPrice: 305.05,
+                },
+                {
+                  BreakQuantity: 10000,
+                  UnitPrice: 0.05664,
+                  TotalPrice: 566.4,
+                },
+                {
+                  BreakQuantity: 15000,
+                  UnitPrice: 0.05447,
+                  TotalPrice: 817.05,
+                },
+                {
+                  BreakQuantity: 25000,
+                  UnitPrice: 0.05207,
+                  TotalPrice: 1301.75,
+                },
+                {
+                  BreakQuantity: 35000,
+                  UnitPrice: 0.05068,
+                  TotalPrice: 1773.8,
+                },
+                {
+                  BreakQuantity: 50000,
+                  UnitPrice: 0.04934,
+                  TotalPrice: 2467,
+                },
+                {
+                  BreakQuantity: 125000,
+                  UnitPrice: 0.04649,
+                  TotalPrice: 5811.25,
+                },
+              ],
+              cut_tape: [
+                { BreakQuantity: 1, UnitPrice: 0.36, TotalPrice: 0.36 },
+                { BreakQuantity: 10, UnitPrice: 0.19, TotalPrice: 1.9 },
+                { BreakQuantity: 50, UnitPrice: 0.1304, TotalPrice: 6.52 },
+                { BreakQuantity: 100, UnitPrice: 0.1128, TotalPrice: 11.28 },
+                { BreakQuantity: 500, UnitPrice: 0.08406, TotalPrice: 42.03 },
+                { BreakQuantity: 1000, UnitPrice: 0.07539, TotalPrice: 75.39 },
+              ],
+              digi_reel: [],
+              hash: "0c50d5bd5951589cbc34f7d02dd5c707",
+              day: 28,
+              month: 10,
+              year: 2024,
+            },
+          ],
+          inventory: [
+            {
+              tape_reel: 0,
+              cut_tape: 4900,
+              digi_reel: 0,
+              hash: "4886247817506f34c70bc9aad0f50c0e",
+              day: 28,
+              month: 10,
+              year: 2024,
+            },
+          ],
+        },
+      ],
+      [
+        "IdenticalPart",
+        {
+          _id: "671922168c26820d731d3896",
+          product_description: "RES SMD 604 OHM 1% 1/20W 0201",
+          detailed_description:
+            "604 Ohms ±1% 0.05W, 1/20W Chip Resistor 0201 (0603 Metric) Thick Film",
+          part_number: "IdenticalPart",
+          product_url:
+            "https://www.digikey.com/en/products/detail/cal-chip-electronics-inc/RM02F6040CT/13567763",
+          datasheet_url:
+            "https://calchip.com/wp-content/uploads/2023/05/rm_series.pdf",
+          photo_url:
+            "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/4029/MFG_RM_series.jpg",
+          video_url: "",
+          status: "Active",
+          resistance: "604 Ohms",
+          resistance_tolerance: "±1%",
+          power: "0.05W, 1/20W",
+          composition: "Thick Film",
+          features: ["-"],
+          temp_coefficient: "±200ppm/°C",
+          operating_temperature: "-55°C ~ 125°C",
+          digikey_case_size: "0201 (0603 Metric)",
+          case_size: "0201",
+          ratings: ["-"],
+          dimensions: '0.024" L x 0.012" W (0.60mm x 0.30mm)',
+          height: '0.010" (0.26mm)',
+          terminations_number: 2,
+          fail_rate: "",
+          category: "Resistors",
+          sub_category: "Chip Resistor - Surface Mount",
+          series: "RM",
+          classifications: {
+            ReachStatus: "REACH Unaffected",
+            RohsStatus: "ROHS3 Compliant",
+            MoistureSensitivityLevel: "1  (Unlimited)",
+            ExportControlClassNumber: "EAR99",
+            HtsusCode: "8533.21.0030",
+          },
+          pricing: [
+            {
+              tape_reel: [
+                {
+                  BreakQuantity: 5000,
+                  UnitPrice: 0.06101,
+                  TotalPrice: 305.05,
+                },
+                {
+                  BreakQuantity: 10000,
+                  UnitPrice: 0.05664,
+                  TotalPrice: 566.4,
+                },
+                {
+                  BreakQuantity: 15000,
+                  UnitPrice: 0.05447,
+                  TotalPrice: 817.05,
+                },
+                {
+                  BreakQuantity: 25000,
+                  UnitPrice: 0.05207,
+                  TotalPrice: 1301.75,
+                },
+                {
+                  BreakQuantity: 35000,
+                  UnitPrice: 0.05068,
+                  TotalPrice: 1773.8,
+                },
+                {
+                  BreakQuantity: 50000,
+                  UnitPrice: 0.04934,
+                  TotalPrice: 2467,
+                },
+                {
+                  BreakQuantity: 125000,
+                  UnitPrice: 0.04649,
+                  TotalPrice: 5811.25,
+                },
+              ],
+              cut_tape: [
+                { BreakQuantity: 1, UnitPrice: 0.36, TotalPrice: 0.36 },
+                { BreakQuantity: 10, UnitPrice: 0.19, TotalPrice: 1.9 },
+                { BreakQuantity: 50, UnitPrice: 0.1304, TotalPrice: 6.52 },
+                { BreakQuantity: 100, UnitPrice: 0.1128, TotalPrice: 11.28 },
+                { BreakQuantity: 500, UnitPrice: 0.08406, TotalPrice: 42.03 },
+                { BreakQuantity: 1000, UnitPrice: 0.07539, TotalPrice: 75.39 },
+              ],
+              digi_reel: [],
+              hash: "0c50d5bd5951589cbc34f7d02dd5c707",
+              day: 28,
+              month: 10,
+              year: 2024,
+            },
+          ],
+          inventory: [
+            {
+              tape_reel: 0,
+              cut_tape: 4900,
+              digi_reel: 0,
+              hash: "4886247817506f34c70bc9aad0f50c0e",
+              day: 28,
+              month: 10,
+              year: 2024,
+            },
+          ],
+        },
+      ],
+    ]);
+    let querySimulation = [
+      // should ignore this one since it's identical
+      {
+        _id: "671922168c26820d731d3896",
+        product_description: "RES SMD 604 OHM 1% 1/20W 0201",
+        detailed_description:
+          "604 Ohms ±1% 0.05W, 1/20W Chip Resistor 0201 (0603 Metric) Thick Film",
+        part_number: "IdenticalPart",
+        product_url:
+          "https://www.digikey.com/en/products/detail/cal-chip-electronics-inc/RM02F6040CT/13567763",
+        datasheet_url:
+          "https://calchip.com/wp-content/uploads/2023/05/rm_series.pdf",
+        photo_url:
+          "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/4029/MFG_RM_series.jpg",
+        video_url: "",
+        status: "Active",
+        resistance: "604 Ohms",
+        resistance_tolerance: "±1%",
+        power: "0.05W, 1/20W",
+        composition: "Thick Film",
+        features: ["-"],
+        temp_coefficient: "±200ppm/°C",
+        operating_temperature: "-55°C ~ 125°C",
+        digikey_case_size: "0201 (0603 Metric)",
+        case_size: "0201",
+        ratings: ["-"],
+        dimensions: '0.024" L x 0.012" W (0.60mm x 0.30mm)',
+        height: '0.010" (0.26mm)',
+        terminations_number: 2,
+        fail_rate: "",
+        category: "Resistors",
+        sub_category: "Chip Resistor - Surface Mount",
+        series: "RM",
+        classifications: {
+          ReachStatus: "REACH Unaffected",
+          RohsStatus: "ROHS3 Compliant",
+          MoistureSensitivityLevel: "1  (Unlimited)",
+          ExportControlClassNumber: "EAR99",
+          HtsusCode: "8533.21.0030",
+        },
+        pricing: [
+          {
+            tape_reel: [
+              {
+                BreakQuantity: 5000,
+                UnitPrice: 0.06101,
+                TotalPrice: 305.05,
+              },
+              {
+                BreakQuantity: 10000,
+                UnitPrice: 0.05664,
+                TotalPrice: 566.4,
+              },
+              {
+                BreakQuantity: 15000,
+                UnitPrice: 0.05447,
+                TotalPrice: 817.05,
+              },
+              {
+                BreakQuantity: 25000,
+                UnitPrice: 0.05207,
+                TotalPrice: 1301.75,
+              },
+              {
+                BreakQuantity: 35000,
+                UnitPrice: 0.05068,
+                TotalPrice: 1773.8,
+              },
+              {
+                BreakQuantity: 50000,
+                UnitPrice: 0.04934,
+                TotalPrice: 2467,
+              },
+              {
+                BreakQuantity: 125000,
+                UnitPrice: 0.04649,
+                TotalPrice: 5811.25,
+              },
+            ],
+            cut_tape: [
+              { BreakQuantity: 1, UnitPrice: 0.36, TotalPrice: 0.36 },
+              { BreakQuantity: 10, UnitPrice: 0.19, TotalPrice: 1.9 },
+              { BreakQuantity: 50, UnitPrice: 0.1304, TotalPrice: 6.52 },
+              { BreakQuantity: 100, UnitPrice: 0.1128, TotalPrice: 11.28 },
+              { BreakQuantity: 500, UnitPrice: 0.08406, TotalPrice: 42.03 },
+              { BreakQuantity: 1000, UnitPrice: 0.07539, TotalPrice: 75.39 },
+            ],
+            digi_reel: [],
+            hash: "0c50d5bd5951589cbc34f7d02dd5c707",
+            day: 28,
+            month: 10,
+            year: 2024,
+          },
+        ],
+        inventory: [
+          {
+            tape_reel: 0,
+            cut_tape: 4900,
+            digi_reel: 0,
+            hash: "4886247817506f34c70bc9aad0f50c0e",
+            day: 28,
+            month: 10,
+            year: 2024,
+          },
+        ],
+      },
+      // should add an entry to both inventory and pricing since they've changed
+      {
+        _id: "671922168c26820d731d3891",
+        product_description: "RES SMD 53.6K OHM 1% 1/20W 0201",
+        detailed_description:
+          "53.6 kOhms ±1% 0.05W, 1/20W Chip Resistor 0201 (0603 Metric) Thick Film",
+        part_number: "AddEntry",
+        product_url:
+          "https://www.digikey.com/en/products/detail/cal-chip-electronics-inc/RM02F5362CT/13567384",
+        datasheet_url:
+          "https://calchip.com/wp-content/uploads/2023/05/rm_series.pdf",
+        photo_url:
+          "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/4029/MFG_RM_series.jpg",
+        video_url: "",
+        status: "Active",
+        resistance: "53.6 kOhms",
+        resistance_tolerance: "±1%",
+        power: "0.05W, 1/20W",
+        composition: "Thick Film",
+        features: ["-"],
+        temp_coefficient: "±200ppm/°C",
+        operating_temperature: "-55°C ~ 125°C",
+        digikey_case_size: "0201 (0603 Metric)",
+        case_size: "0201",
+        ratings: ["-"],
+        dimensions: '0.024" L x 0.012" W (0.60mm x 0.30mm)',
+        height: '0.010" (0.26mm)',
+        terminations_number: 2,
+        fail_rate: "",
+        category: "Resistors",
+        sub_category: "Chip Resistor - Surface Mount",
+        series: "RM",
+        classifications: {
+          ReachStatus: "REACH Unaffected",
+          RohsStatus: "ROHS3 Compliant",
+          MoistureSensitivityLevel: "1  (Unlimited)",
+          ExportControlClassNumber: "EAR99",
+          HtsusCode: "8533.21.0030",
+        },
+        pricing: [
+          {
+            tape_reel: [
+              {
+                BreakQuantity: 5000,
+                // modifications are here
+                UnitPrice: 0.061,
+                // modifications are here
+                TotalPrice: 305.0,
+              },
+              {
+                BreakQuantity: 10000,
+                UnitPrice: 0.05664,
+                TotalPrice: 566.4,
+              },
+              {
+                BreakQuantity: 15000,
+                UnitPrice: 0.05447,
+                TotalPrice: 817.05,
+              },
+              {
+                BreakQuantity: 25000,
+                UnitPrice: 0.05207,
+                TotalPrice: 1301.75,
+              },
+              {
+                BreakQuantity: 35000,
+                UnitPrice: 0.05068,
+                TotalPrice: 1773.8,
+              },
+              {
+                BreakQuantity: 50000,
+                UnitPrice: 0.04934,
+                TotalPrice: 2467,
+              },
+              {
+                BreakQuantity: 125000,
+                UnitPrice: 0.04649,
+                TotalPrice: 5811.25,
+              },
+            ],
+            cut_tape: [
+              { BreakQuantity: 1, UnitPrice: 0.36, TotalPrice: 0.36 },
+              { BreakQuantity: 10, UnitPrice: 0.19, TotalPrice: 1.9 },
+              { BreakQuantity: 50, UnitPrice: 0.1304, TotalPrice: 6.52 },
+              { BreakQuantity: 100, UnitPrice: 0.1128, TotalPrice: 11.28 },
+              { BreakQuantity: 500, UnitPrice: 0.08406, TotalPrice: 42.03 },
+              { BreakQuantity: 1000, UnitPrice: 0.07539, TotalPrice: 75.39 },
+            ],
+            digi_reel: [],
+            // modifications are here
+            hash: "0c50d5bd5951589cbc34f7d02dd5c707TEST",
+            day: 29,
+            month: 10,
+            year: 2024,
+          },
+        ],
+        inventory: [
+          {
+            tape_reel: 0,
+            // modifications are here
+            cut_tape: 4501,
+            digi_reel: 0,
+            // modifications are here
+            hash: "4886247817506f34c70bc9aad0f50c0eTEST",
+            day: 29,
+            month: 10,
+            year: 2024,
+          },
+        ],
+      },
+      // should add this one since it doesnt exist in the map
+      {
+        _id: "671922168c26820d731d38f6",
+        product_description: "RES SMD 24.3 OHM 1% 1/20W 0201",
+        detailed_description:
+          "24.3 Ohms ±1% 0.05W, 1/20W Chip Resistor 0201 (0603 Metric) Thick Film",
+        part_number: "Addition",
+        product_url:
+          "https://www.digikey.com/en/products/detail/cal-chip-electronics-inc/RM02F24R3CT/13567642",
+        datasheet_url:
+          "https://calchip.com/wp-content/uploads/2023/05/rm_series.pdf",
+        photo_url:
+          "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/4029/MFG_RM_series.jpg",
+        video_url: "",
+        status: "Active",
+        resistance: "24.3 Ohms",
+        resistance_tolerance: "±1%",
+        power: "0.05W, 1/20W",
+        composition: "Thick Film",
+        features: ["-"],
+        temp_coefficient: "±200ppm/°C",
+        operating_temperature: "-55°C ~ 125°C",
+        digikey_case_size: "0201 (0603 Metric)",
+        case_size: "0201",
+        ratings: ["-"],
+        dimensions: '0.024" L x 0.012" W (0.60mm x 0.30mm)',
+        height: '0.010" (0.26mm)',
+        terminations_number: 2,
+        fail_rate: "",
+        category: "Resistors",
+        sub_category: "Chip Resistor - Surface Mount",
+        series: "RM",
+        classifications: {
+          ReachStatus: "REACH Unaffected",
+          RohsStatus: "ROHS3 Compliant",
+          MoistureSensitivityLevel: "1  (Unlimited)",
+          ExportControlClassNumber: "EAR99",
+          HtsusCode: "8533.21.0030",
+        },
+        pricing: [
+          {
+            tape_reel: [
+              {
+                BreakQuantity: 5000,
+                UnitPrice: 0.06101,
+                TotalPrice: 305.05,
+              },
+              {
+                BreakQuantity: 10000,
+                UnitPrice: 0.05664,
+                TotalPrice: 566.4,
+              },
+              {
+                BreakQuantity: 15000,
+                UnitPrice: 0.05447,
+                TotalPrice: 817.05,
+              },
+              {
+                BreakQuantity: 25000,
+                UnitPrice: 0.05207,
+                TotalPrice: 1301.75,
+              },
+              {
+                BreakQuantity: 35000,
+                UnitPrice: 0.05068,
+                TotalPrice: 1773.8,
+              },
+              {
+                BreakQuantity: 50000,
+                UnitPrice: 0.04934,
+                TotalPrice: 2467,
+              },
+              {
+                BreakQuantity: 125000,
+                UnitPrice: 0.04649,
+                TotalPrice: 5811.25,
+              },
+            ],
+            cut_tape: [
+              { BreakQuantity: 1, UnitPrice: 0.36, TotalPrice: 0.36 },
+              { BreakQuantity: 10, UnitPrice: 0.19, TotalPrice: 1.9 },
+              { BreakQuantity: 50, UnitPrice: 0.1304, TotalPrice: 6.52 },
+              { BreakQuantity: 100, UnitPrice: 0.1128, TotalPrice: 11.28 },
+              { BreakQuantity: 500, UnitPrice: 0.08406, TotalPrice: 42.03 },
+              { BreakQuantity: 1000, UnitPrice: 0.07539, TotalPrice: 75.39 },
+            ],
+            digi_reel: [],
+            hash: "0c50d5bd5951589cbc34f7d02dd5c707",
+            day: 28,
+            month: 10,
+            year: 2024,
+          },
+        ],
+        inventory: [
+          {
+            tape_reel: 0,
+            cut_tape: 4900,
+            digi_reel: 0,
+            hash: "4886247817506f34c70bc9aad0f50c0e",
+            day: 28,
+            month: 10,
+            year: 2024,
+          },
+        ],
+      },
+    ];
+    // simulate 3 query results
+    let results = processPartNumbers(querySimulation, mongoSimulation);
+
+    // ensure bulkOp has 1 entry
+    expect(results.bulkOp.length).to.equal(1);
+    // ensure insertionList has 1 entry
+    expect(results.insertionList.length).to.equal(1);
+  });
+  it("distributes comparison functions to worker threads and returns results", async function () {
+    this.timeout(0);
+    let coreCount = 4;
+    const results = distributeWorkers(
+      testComparisonFile,
+      coreCount,
+      existingPartsMap
+    );
+    expect(results).to.be.an("array");
+    let workerOutputs = await Promise.all(results);
+    expect(workerOutputs.length).to.equal(coreCount);
+    workerOutputs.forEach((comparisonResults) => {
+      expect(comparisonResults).to.have.keys(["bulkOp", "insertionList"]);
+    });
+    writeFileSync("./temp/test_operation.json", JSON.stringify(workerOutputs));
+  });
+
+  if (client) {
+    client.close();
+  }
 });

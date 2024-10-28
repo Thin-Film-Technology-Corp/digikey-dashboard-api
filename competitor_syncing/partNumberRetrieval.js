@@ -1,5 +1,5 @@
-import { validatePNs, remediatePNs } from "./partNumberRemediation";
-import { structurePNs } from "./partNumberStructuring";
+import { validatePNs, remediatePNs } from "./partNumberRemediation.js";
+import { structurePNs } from "./partNumberStructuring.js";
 import pLimit from "p-limit";
 import { config } from "dotenv";
 config();

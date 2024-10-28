@@ -1,5 +1,6 @@
 import { config } from "dotenv";
 import { readFileSync, writeFileSync, existsSync } from "fs";
+import { fileURLToPath } from "url";
 import {
   isMainThread,
   Worker,
@@ -7,6 +8,8 @@ import {
   workerData,
 } from "node:worker_threads";
 config();
+
+const __filename = fileURLToPath(import.meta.url);
 
 function logExceptOnTest(string) {
   if (process.env.NODE_ENV !== "test") {
@@ -22,6 +25,10 @@ export async function compareQueryToDatabase(
   database,
   coreCount
 ) {
+  const bulkOp = [];
+  const insertionList = [];
+  coreCount = coreCount || 1;
+
   let testFile;
   if (existsSync("./temp/results.csv")) {
     testFile = readFileSync("./temp/results.csv").toString();
@@ -30,22 +37,39 @@ export async function compareQueryToDatabase(
   }
 
   const startTime = Date.now();
-  coreCount = coreCount || 1;
 
-  // get all the part numbers from the queryresults and request all the parts from the database
-  const partNumbers = queryResults.map((pn) => pn.part_number);
-  const existingParts = await database
-    .find({ part_number: { $in: partNumbers } })
-    .toArray();
+  let [partNumbers, existingPartsMap] =
+    await retrieveAllCompetitorDataFromMongo(database, queryResults);
 
-  const bulkOp = [];
-  const insertionList = [];
+  const results = distributeWorkers(queryResults, coreCount, existingPartsMap);
 
-  // create a Map of the parts with the key being the part number
-  const existingPartsMap = new Map(
-    existingParts.map((p) => [p.part_number, p])
+  let workerOutputs = await Promise.all(results);
+
+  workerOutputs.forEach(
+    ({ bulkOp: workerBulkOp, insertionList: workerInsertionList }) => {
+      bulkOp.push(...workerBulkOp);
+      insertionList.push(...workerInsertionList);
+    }
+  );
+  const endTime = Date.now();
+  const elapsedTime = endTime - startTime;
+  logExceptOnTest(
+    `time for comparison execution: ${elapsedTime} ms for ${
+      partNumbers.length
+    } parts\n${partNumbers.length / elapsedTime} parts / ms`
+  );
+  writeFileSync(
+    "./temp/results.csv",
+    (testFile += `\n${coreCount},${elapsedTime},${partNumbers.length},${
+      partNumbers.length / elapsedTime
+    }`)
   );
 
+  return { bulkOp, insertionList };
+}
+
+// returns an array of promises for each worker
+export function distributeWorkers(queryResults, coreCount, existingPartsMap) {
   const workerPNIncrement = Math.ceil(queryResults.length / coreCount);
   let workerPNIndex = 0;
 
@@ -79,37 +103,33 @@ export async function compareQueryToDatabase(
       promises.push(workerPromise);
     }
   }
-  const results = await Promise.all(promises);
+  return promises;
+}
 
-  results.forEach(
-    ({ bulkOp: workerBulkOp, insertionList: workerInsertionList }) => {
-      bulkOp.push(...workerBulkOp);
-      insertionList.push(...workerInsertionList);
-    }
-  );
-  const endTime = Date.now();
-  const elapsedTime = endTime - startTime;
-  logExceptOnTest(
-    `time for comparison execution: ${elapsedTime} ms for ${
-      partNumbers.length
-    } parts\n${partNumbers.length / elapsedTime} parts / ms`
-  );
-  writeFileSync(
-    "./temp/results.csv",
-    (testFile += `\n${coreCount},${elapsedTime},${partNumbers.length},${
-      partNumbers.length / elapsedTime
-    }`)
+export async function retrieveAllCompetitorDataFromMongo(
+  database,
+  queryResults
+) {
+  // get all the part numbers from the queryresults and request all the parts from the database
+  const partNumbers = queryResults.map((pn) => pn.part_number);
+  const existingParts = await database
+    .find({ part_number: { $in: partNumbers } })
+    .toArray();
+
+  // create a Map of the parts with the key being the part number
+  const existingPartsMap = new Map(
+    existingParts.map((p) => [p.part_number, p])
   );
 
-  return { bulkOp, insertionList };
+  return [partNumbers, existingPartsMap];
 }
 
 // This is what a worker thread will execute to compare
-function processPartNumbers(queryResults, existingPartsMap) {
+export function processPartNumbers(queryResults, existingPartsMap) {
   const bulkOp = [];
   const insertionList = [];
   queryResults.forEach((pn) => {
-    const oldPNData = existingPartsMap.get(pn.part_number);
+    const oldPNData = structuredClone(existingPartsMap.get(pn.part_number));
     // console.log(
     //   `Here's where the old map has the part number ${pn.part_number}: ${oldPNData}`
     // );
@@ -148,12 +168,13 @@ function processPartNumbers(queryResults, existingPartsMap) {
 }
 
 function compareHashes(newData, oldData) {
+  let retItem = [...oldData];
   newData.forEach((newItem) => {
     if (!oldData.some((oldItem) => oldItem.hash === newItem.hash)) {
-      oldData.push(newItem);
+      retItem.push(newItem);
     }
   });
-  return oldData;
+  return retItem;
 }
 
 if (!isMainThread) {

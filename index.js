@@ -15,7 +15,6 @@ import {
   flattenPartData,
 } from "./mongoOperation.js";
 import { handleCompetitorRefresh } from "./competitor_syncing/competitorSync.js";
-import { MongoClient } from "mongodb";
 
 const app = express();
 

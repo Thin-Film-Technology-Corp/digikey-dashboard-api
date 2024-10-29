@@ -1,5 +1,8 @@
 import { config } from "dotenv";
+import pLimit from "p-limit";
 config();
+
+const limit = pLimit(15);
 
 function logExceptOnTest(string) {
   if (process.env.NODE_ENV !== "test") {

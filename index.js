@@ -89,7 +89,7 @@ app.get("/csv/sales", authorize, async (req, res) => {
     logExceptOnTest("getting sales data from mongo...");
     let salesData = await retrieveMongoSalesData();
     logExceptOnTest("converting sales data to csv...");
-    csvData = await convertMongoDataToCSV(salesData);
+    csvData = convertMongoDataToCSV(salesData);
   } catch (error) {
     console.error(
       `error getting csv for sales from mongo: ${error} \n ${error.stack}`
@@ -209,6 +209,14 @@ app.patch("/test/sync_competitor_db", authorize, async (req, res) => {
   } catch (error) {
     console.error(`error occurred on /test/sync_competitor_db: ${error}`);
     res.status(500).end(`Error occurred!`);
+  }
+});
+
+app.patch("/sync_competitor_db", authorize, async (req, res) => {
+  try {
+    await handleCompetitorRefresh(0);
+  } catch (error) {
+    console.error(`competitor refresh failed: ${error}\n${error.stack}`);
   }
 });
 

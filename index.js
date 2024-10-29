@@ -212,6 +212,10 @@ app.patch("/test/sync_competitor_db", authorize, async (req, res) => {
   }
 });
 
+app.get("/health_check", authorize, (req, res) => {
+  res.status(200).send().end();
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   logExceptOnTest(`Server is listening on port ${port}`);

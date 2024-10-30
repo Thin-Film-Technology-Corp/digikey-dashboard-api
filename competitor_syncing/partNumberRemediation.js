@@ -91,7 +91,9 @@ export async function remediatePNs(
             },
             method: "POST",
             body: JSON.stringify(body),
-          }
+          },
+          undefined,
+          errorArray
         );
         fixedBatches += data.Products.length;
         logExceptOnTest(`${fixedBatches} / ${redos.length * 50} remediated`);
@@ -189,7 +191,7 @@ async function bulkRemediation(
 }
 
 // do fetch until you get response.ok
-async function fetchWithRetries(url, options, retries = 3) {
+async function fetchWithRetries(url, options, retries = 3, errorArray) {
   while (retries > 0) {
     let response = await fetch(url, options);
     if (response.ok) {

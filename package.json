@@ -8,13 +8,14 @@
     "test": "set NODE_ENV=test&& mocha --reporter spec --exit",
     "tests:integration": "set NODE_ENV=test&& mocha 'test/integrationTests.test.js' --reporter spec --exit",
     "tests:e2e": "set NODE_ENV=test&& mocha 'test/e2e.test.js' --reporter spec --exit",
-    "dev": "NODE_OPTIONS='--max-old-space-size=4096' nodemon index.js",
-    "start": "node index.js"
+    "dev": "cross-env NODE_OPTIONS='--max-old-space-size=4096' nodemon index.js",
+    "start": "cross-env NODE_OPTIONS='--max-old-space-size=4096' node index.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "chai": "^5.1.1",
+    "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",

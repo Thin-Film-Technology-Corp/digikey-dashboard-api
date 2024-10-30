@@ -18,9 +18,14 @@ jobs:
         with:
           node-version: "18.x"
 
+      - name: Set NODE_OPTIONS for increase memory to 4gb
+        run: echo "NODE_OPTIONS=--max-old-space-size=4096" >> $GITHUB_ENV
+
       - name: npm install, build, and test
         run: |
           npm install
+        env:
+          NODE_OPTIONS: ${{ env.NODE_OPTIONS }}
 
       - name: Zip artifact for deployment
         run: zip release.zip ./* -r

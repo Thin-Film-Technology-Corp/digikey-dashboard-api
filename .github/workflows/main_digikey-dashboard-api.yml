@@ -18,8 +18,8 @@ jobs:
         with:
           node-version: "18.x"
 
-      - name: Set NODE_OPTIONS for increase memory to 4gb
-        run: echo "NODE_OPTIONS=--max-old-space-size=4096" >> $GITHUB_ENV
+      - name: Set NODE_OPTIONS for increased memory to 4GB
+        run: echo "NODE_OPTIONS=\"--max-old-space-size=4096\"" >> $GITHUB_ENV
 
       - name: npm install, build, and test
         run: |

@@ -3,13 +3,9 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { config } from "dotenv";
 import { schedule } from "node-cron";
-import { csvRequest } from "./login.js";
-import { microstrategySessionCredentials } from "./getSessionCookies.js";
 import {
-  syncMongoSalesData,
   retrieveMongoSalesData,
   convertMongoDataToCSV,
-  syncMongoPartData,
   converPartDataToCSV,
   retrieveMongoPartData,
   flattenPartData,
@@ -50,39 +46,6 @@ const authorize = (req, res, next) => {
   next();
 };
 
-// In-memory storage for session credentials
-let sessionObj = null;
-
-const getSessionCredentials = async (retries = 3) => {
-  try {
-    if (retries <= 0) {
-      throw new Error("Exceeded maximum retries to fetch session credentials.");
-    }
-
-    logExceptOnTest("Fetching new session credentials...");
-    const sessionObj = await microstrategySessionCredentials(
-      process.env.digikey_username,
-      process.env.digikey_password
-    );
-
-    if (!sessionObj) {
-      throw new Error("Failed to fetch session credentials.");
-    }
-
-    return sessionObj;
-  } catch (error) {
-    console.error(`Error in getSessionCredentials: ${error.message}`);
-    if (retries > 1) {
-      logExceptOnTest(`Retrying... (${retries - 1} retries left)`);
-      return await getSessionCredentials(retries - 1);
-    } else {
-      throw new Error(
-        "Failed to fetch session credentials after multiple retries."
-      );
-    }
-  }
-};
-
 app.get("/csv/sales", authorize, async (req, res) => {
   let csvData;
   try {
@@ -118,88 +81,6 @@ app.get("/csv/parts", authorize, async (req, res) => {
     `attachment; filename="digikey_sales_report.csv"`
   );
   return res.status(200).send(csv);
-});
-
-app.get("/csv/:document", authorize, async (req, res) => {
-  const paths = ["inventory", "fees", "billing"];
-
-  if (!paths.includes(req.params.document)) {
-    logExceptOnTest(`Document not described ${req.params.document}`);
-    res.status(400).end("Bad request");
-    return;
-  }
-
-  let retries = 0;
-  const maxRetries = 2;
-
-  const getCsvData = async () => {
-    try {
-      logExceptOnTest("Retrieving session information...");
-      if (!sessionObj) {
-        sessionObj = await getSessionCredentials();
-      }
-      logExceptOnTest("Using session information...");
-
-      const csvBuffer = await csvRequest(
-        sessionObj.sessionCookies,
-        sessionObj.authToken,
-        req.params.document
-      );
-      logExceptOnTest("Retrieved CSV data...");
-
-      const csv = csvBuffer.toString("utf-8");
-      res.setHeader("Content-Type", "text/csv");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="digikey_${req.params.document}_report.csv"`
-      );
-      logExceptOnTest("Sending CSV data...");
-      res.status(200).send(csv).end();
-    } catch (error) {
-      logExceptOnTest(`Error getting CSVs: ${error.message} \n${error.stack}`);
-      if (error.statusCode === 401 && retries < maxRetries) {
-        retries++;
-        logExceptOnTest("Session expired. Fetching new session credentials...");
-        sessionObj = await getSessionCredentials();
-        return getCsvData(); // Retry with new session credentials
-      } else if (error.statusCode === 401 && retries >= maxRetries) {
-        logExceptOnTest("Received request while authorizing!");
-        return res
-          .status(503)
-          .end("Please wait for authorization before attempting again");
-      } else {
-        res.status(500).end("Internal error!");
-      }
-    }
-  };
-
-  getCsvData();
-});
-
-app.patch("/sync_mongo_data", authorize, async (req, res) => {
-  try {
-    logExceptOnTest("Refreshing MongoDB data from sales API...");
-    await syncMongoSalesData(); // refresh mongo data
-    logExceptOnTest("\ncompleted!\n\nRefreshing MongoDB data from part API...");
-    await syncMongoPartData();
-    logExceptOnTest("completed!");
-    return res.status(200).end();
-  } catch (error) {
-    console.error(
-      `Error while completing manual refresh of Mongo data:: ${error} \n${error.stack}`
-    );
-    return res.status(500).end("Error syncing data!");
-  }
-});
-
-app.patch("/sync_comp_db/chip_resistor", authorize, async (req, res) => {
-  try {
-    await syncCompetitors();
-    return res.status(200).end();
-  } catch (error) {
-    console.log(error);
-    return res.status(500).end();
-  }
 });
 
 app.patch("/test/sync_competitor_db", authorize, async (req, res) => {
@@ -242,18 +123,6 @@ app.listen(port, () => {
 // * * * * * *
 
 schedule("0 11 * * *", async () => {
-  // Schedule a task every day at 6 AM
-  try {
-    logExceptOnTest("Refreshing MongoDB data from sales API...");
-    await syncMongoSalesData(); // refresh mongo data
-    logExceptOnTest("\ncompleted!\n\nRefreshing MongoDB data from part API...");
-    await syncMongoPartData();
-    logExceptOnTest("completed!");
-  } catch (error) {
-    console.error(
-      `Error while completing scheduled refresh of Mongo data:: ${error} \n${error.stack}`
-    );
-  }
   try {
     await handleCompetitorRefresh(0);
   } catch (error) {

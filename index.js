@@ -95,9 +95,12 @@ app.patch("/test/sync_competitor_db", authorize, async (req, res) => {
 
 app.patch("/sync_competitor_db", authorize, async (req, res) => {
   try {
-    await handleCompetitorRefresh(0);
+    let results = handleCompetitorRefresh(0);
+    res.status(202).send();
+    await results;
   } catch (error) {
     console.error(`competitor refresh failed: ${error}\n${error.stack}`);
+    res.status(500).end();
   }
 });
 

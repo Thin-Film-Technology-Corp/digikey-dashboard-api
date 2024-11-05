@@ -104,6 +104,7 @@ export async function retrieveResistorPNs(
 
         promiseArray.push(...burstLimitData[0]);
 
+        bodyClone.Offset += burstLimit * bodyClone.Limit;
         // ? Wouldnt this overwrite the markers array? The retrieve burst limit function should be the one modifying this
         // markers = burstLimitData[1];
       } catch (error) {

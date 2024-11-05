@@ -271,10 +271,16 @@ async function syncCompetitors(offset) {
   const operations = await compareQueryToDatabase(pns, dkChipResistor, 4);
 
   if (operations.insertionList.length > 0) {
+    logExceptOnTest(
+      `inserting ${operations.insertionList.length} parts to database...`
+    );
     await dkChipResistor.insertMany(operations.insertionList);
   }
 
   if (operations.bulkOp.length > 0) {
+    logExceptOnTest(
+      `bulk updating ${operations.bulkOp.length} parts in database...`
+    );
     await dkChipResistor.bulkWrite(operations.bulkOp);
   }
 

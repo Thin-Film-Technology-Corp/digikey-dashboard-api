@@ -60,7 +60,6 @@ export async function remediatePNs(
       `Attempting bulk remediation of ${redoSlice.length} PN batches...`
     );
 
-    // ? This was the last thing added 22Oct. I'm out of tokens and cannot test it, but I believe the retArr was being overwritten and thus the remediated PNs were being lost except for the final ones
     let remediatedPNs;
 
     // bulkRemediation will attempt to resolve the entire batch in bulk so that there is no need to redo each request individually

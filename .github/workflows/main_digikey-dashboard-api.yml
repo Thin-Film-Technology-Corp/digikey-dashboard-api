@@ -66,5 +66,4 @@ jobs:
         uses: azure/webapps-deploy@v2
         with:
           app-name: "digikey-dashboard-api"
-          slot-name: "Production"
           package: .

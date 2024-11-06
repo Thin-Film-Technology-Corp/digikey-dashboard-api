@@ -184,6 +184,13 @@ async function syncCompetitors(offset) {
     return a.isActive - b.isActive;
   });
 
+  logExceptOnTest("connecting to Mongo instance...");
+  const client = new MongoClient(
+    process.env.competitor_database_connection_string
+  );
+  await client.connect();
+  const db = client.db("CompetitorDBInstance");
+  const dkChipResistor = db.collection("dk_chip_resistor");
   for (let api in operatingAPIs) {
     try {
       let cred = operatingAPIs[api];
@@ -229,7 +236,8 @@ async function syncCompetitors(offset) {
           api,
           cred.id,
           accessToken,
-          errorArray
+          errorArray,
+          dkChipResistor
         )
       );
 
@@ -243,56 +251,8 @@ async function syncCompetitors(offset) {
     }
   }
 
-  logExceptOnTest("retrieving all Chip Resistors from Digikey...");
-
-  pns = (await Promise.all(pns)).flat();
-
-  logExceptOnTest(
-    "writing error log to ./temp/retrieval_errors.json and refreshing local cache of parts..."
-  );
-  writeFileSync("./temp/retrieval_errors.json", JSON.stringify(errorArray));
-  writeFileSync("./temp/checkOnParts.json", JSON.stringify(pns));
-
-  if (pns.length < 1) {
-    console.log(
-      `no PNs were returned from retrieve resistor pn function: ${pns}`
-    );
-  }
-
-  logExceptOnTest("connecting to Mongo instance...");
-  const client = new MongoClient(
-    process.env.competitor_database_connection_string
-  );
-  await client.connect();
-  const db = client.db("CompetitorDBInstance");
-  const dkChipResistor = db.collection("dk_chip_resistor");
-
-  logExceptOnTest("comparing delta between query and Mongo...");
-  const operations = await compareQueryToDatabase(pns, dkChipResistor, 4);
-
-  if (operations.insertionList.length > 0) {
-    logExceptOnTest(
-      `inserting ${operations.insertionList.length} parts to database...`
-    );
-    await dkChipResistor.insertMany(operations.insertionList);
-  }
-
-  if (operations.bulkOp.length > 0) {
-    logExceptOnTest(
-      `bulk updating ${operations.bulkOp.length} parts in database...`
-    );
-    await dkChipResistor.bulkWrite(operations.bulkOp);
-  }
-
-  writeFileSync("./temp/most_recent_pns.json", JSON.stringify(pns));
-  writeFileSync(
-    "./temp/most_recent_operation.json",
-    JSON.stringify(operations)
-  );
-
-  logExceptOnTest(
-    `completed:\n\t${operations.bulkOp.length} doc(s) updated\n\t${operations.insertionList.length} doc(s) created`
-  );
+  logExceptOnTest("all requests sent. awaiting resolution...");
+  await Promise.all(pns);
 
   // TODO: move this to the pn stage so we aren''t sendinf redundant info
   logExceptOnTest(`Cleaning up...`);

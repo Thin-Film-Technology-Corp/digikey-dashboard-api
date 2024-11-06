@@ -92,8 +92,8 @@ async function findDuplicatePartNumbers(isDeleteDuplicates, collection) {
   return duplicates;
 }
 
-syncCompetitorsNoFetch(
-  JSON.parse(readFileSync("./temp/checkOnParts.json"))
-).then((results) => {
-  console.log("complete");
-});
+// syncCompetitorsNoFetch(
+//   JSON.parse(readFileSync("./temp/checkOnParts.json"))
+// ).then((results) => {
+//   console.log("complete");
+// });

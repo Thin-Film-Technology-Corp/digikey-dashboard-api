@@ -24,9 +24,9 @@ export async function retrieveResistorPNs(
   apiIndex,
   client_id,
   remediationToken,
-  errorArray
+  errorArray,
+  pnCollection
 ) {
-  let promiseArray = [];
   let markers = new Map();
   let redos = [];
   body = body || {
@@ -77,15 +77,10 @@ export async function retrieveResistorPNs(
     `number of batches: ${numberOfBatches}\nnumber of bursts: ${numberOfBursts}`
   );
 
-  return await new Promise(async (resolve, reject) => {
+  const pns = [];
+  return new Promise(async (resolve, reject) => {
     for (let i = 0; i < numberOfBursts; i++) {
       try {
-        if (i > 0) {
-          logExceptOnTest(`${burstReset / 1000} second timeout...`);
-          await new Promise((resolve) =>
-            setTimeout(resolve, burstReset + 1000)
-          );
-        }
         console.log(`Burst ${i} on API ${apiIndex}:`);
       } catch (error) {
         console.error(
@@ -101,12 +96,38 @@ export async function retrieveResistorPNs(
           markers,
           client_id
         );
+        // start a timer
+        const start = Date.now();
 
-        promiseArray.push(...burstLimitData[0]);
+        // resolve the promises with marker mapping etc.
+        await resolvePNPromiseArray(
+          burstLimitData[0],
+          markers,
+          pns,
+          errorArray
+        );
+        // push them all to mongo, once resolved
+        const bulkCommand = pns.map(structurePNs);
+        logExceptOnTest(`API ${apiIndex} writing to mongo...`);
+        const mongoResults = await pnCollection.bulkWrite(bulkCommand);
 
+        // if timer elapsed time <= burst reset then wait the difference out
+        const end = Date.now();
+        const timeSpent = end - start;
+        logExceptOnTest(
+          `time spent retrieving data ${timeSpent / 1000} (${timeSpent}ms) \n${
+            mongoResults.insertedCount
+          } inserted & ${mongoResults.modifiedCount} modified`
+        );
+
+        // if the time spent was less than the burst reset, and there is still another burst to do
+        if (timeSpent <= burstReset + 1000 && i + 1 < numberOfBursts) {
+          const waitingTime = burstReset + 1000 - timeSpent;
+          logExceptOnTest(`${waitingTime / 1000} second timeout...`);
+          await new Promise((resolve) => setTimeout(resolve, waitingTime));
+        }
+        // set body offset and move on
         bodyClone.Offset += burstLimit * bodyClone.Limit;
-        // ? Wouldnt this overwrite the markers array? The retrieve burst limit function should be the one modifying this
-        // markers = burstLimitData[1];
       } catch (error) {
         console.error(
           `Error retriving burst limit on burst ${i} on API ${apiIndex}: ${error}`
@@ -114,50 +135,6 @@ export async function retrieveResistorPNs(
       }
     }
 
-    const pns = [];
-    try {
-      logExceptOnTest(`resolving promise array...`);
-      promiseArray = await Promise.all(
-        promiseArray.map((r) =>
-          r.data
-            .then((res) => {
-              if (!res.ok) {
-                // set marker to false for revision
-                markers.set(r.index, false);
-                errorArray.push({
-                  type: "http response fail",
-                  code: res.status,
-                  message: res.statusText,
-                  index: r.index,
-                });
-                throw new Error(
-                  `promise for part numbering failed!\n${res.status}`
-                );
-              } else {
-                return res.json();
-              }
-            })
-            .then((d) => {
-              // logExceptOnTest("pushing product to pn...");
-              pns.push(...d.Products);
-              return { ...d, index: r.index };
-            })
-            .catch((error) => {
-              // console.error("Error processing request:", error);
-              errorArray.push({
-                type: "general error",
-                message: error,
-              });
-              // set marker to false for revision
-              markers.set(r.index, false);
-              // Return a default value or handle the error in a way that doesn't break the Promise.all
-              // return { error: true, index: r.index, message: error.message };
-            })
-        )
-      );
-    } catch (error) {
-      console.error(`Error resolving promises on burst limit data: ${error}`);
-    }
     // Validate that we got all of our information
     // Check if length matches number of batches or if any marker is set to negative
 
@@ -197,8 +174,14 @@ export async function retrieveResistorPNs(
       } catch (error) {
         console.error(error);
       }
-      pns.push(...(await Promise.all(additionalPNs)));
-      logExceptOnTest(`pushed ${additionalPNs.length} redone parts into pns`);
+      await Promise.all(additionalPNs);
+      const remediationCommand = additionalPNs.map(structurePNs);
+      const remediationResults = await remediationCommand.bulkWrite(
+        remediationCommand
+      );
+      logExceptOnTest(
+        `API ${apiIndex} remediated ${additionalPNs.length} PNs \n${remediationResults.insertedCount} inserted & ${remediationResults.modifiedCount} modified`
+      );
     }
 
     resolve(pns.map(structurePNs));
@@ -249,4 +232,50 @@ async function retrieveBurstLimit(
   }
 
   return [promiseArray, markers];
+}
+
+async function resolvePNPromiseArray(promiseArray, markers, pns, errorArray) {
+  try {
+    logExceptOnTest(`resolving promise array...`);
+    promiseArray = await Promise.all(
+      promiseArray.map((r) =>
+        r.data
+          .then((res) => {
+            if (!res.ok) {
+              // set marker to false for revision
+              markers.set(r.index, false);
+              errorArray.push({
+                type: "http response fail",
+                code: res.status,
+                message: res.statusText,
+                index: r.index,
+              });
+              throw new Error(
+                `promise for part numbering failed!\n${res.status}`
+              );
+            } else {
+              return res.json();
+            }
+          })
+          .then((d) => {
+            // logExceptOnTest("pushing product to pn...");
+            pns.push(...d.Products);
+            return { ...d, index: r.index };
+          })
+          .catch((error) => {
+            // console.error("Error processing request:", error);
+            errorArray.push({
+              type: "general error",
+              message: error,
+            });
+            // set marker to false for revision
+            markers.set(r.index, false);
+            // Return a default value or handle the error in a way that doesn't break the Promise.all
+            // return { error: true, index: r.index, message: error.message };
+          })
+      )
+    );
+  } catch (error) {
+    console.error(`Error resolving promises on burst limit data: ${error}`);
+  }
 }

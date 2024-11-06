@@ -171,14 +171,14 @@ export async function retrieveResistorPNs(
           fixedBatches,
           errorArray
         );
+        await Promise.all(additionalPNs);
+        const remediationCommand = additionalPNs.map(structurePNs);
+        const remediationResults = await pnCollection.bulkWrite(
+          remediationCommand
+        );
       } catch (error) {
         console.error(error);
       }
-      await Promise.all(additionalPNs);
-      const remediationCommand = additionalPNs.map(structurePNs);
-      const remediationResults = await remediationCommand.bulkWrite(
-        remediationCommand
-      );
       logExceptOnTest(
         `API ${apiIndex} remediated ${additionalPNs.length} PNs \n${remediationResults.insertedCount} inserted & ${remediationResults.modifiedCount} modified`
       );

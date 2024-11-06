@@ -176,12 +176,12 @@ export async function retrieveResistorPNs(
         const remediationResults = await pnCollection.bulkWrite(
           remediationCommand
         );
+        logExceptOnTest(
+          `API ${apiIndex} remediated ${additionalPNs.length} PNs \n${remediationResults.insertedCount} inserted & ${remediationResults.modifiedCount} modified`
+        );
       } catch (error) {
         console.error(error);
       }
-      logExceptOnTest(
-        `API ${apiIndex} remediated ${additionalPNs.length} PNs \n${remediationResults.insertedCount} inserted & ${remediationResults.modifiedCount} modified`
-      );
     }
 
     resolve(pns.map(structurePNs));

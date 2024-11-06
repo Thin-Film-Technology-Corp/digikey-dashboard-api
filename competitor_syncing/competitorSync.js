@@ -4,7 +4,6 @@ import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { retrieveResistorPNs } from "./partNumberRetrieval.js";
-import { compareQueryToDatabase } from "./partNumberComparison.js";
 
 config();
 

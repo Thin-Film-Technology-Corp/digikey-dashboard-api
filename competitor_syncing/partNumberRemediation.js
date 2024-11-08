@@ -209,7 +209,7 @@ async function fetchWithRetries(url, options, retries = 3, errorArray) {
       }
       retries--;
       logExceptOnTest(
-        `The following status was returned by a retry with redos fetch: ${res.status} ${res.statusText}`
+        `The following status was returned by a retry with redos fetch: ${response.status} ${response.statusText}`
       );
     }
   } catch (error) {

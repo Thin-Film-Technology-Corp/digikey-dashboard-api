@@ -156,35 +156,11 @@ export async function retrieveResistorPNs(
         bodyClone.Limit
       );
       redos.push(...validatedRedos);
-
-      let additionalPNs = [];
-      try {
-        logExceptOnTest(`${redos.length} batches require another attempt`);
-        let fixedBatches = 0;
-        additionalPNs = await remediatePNs(
-          redos,
-          bodyClone,
-          remediationToken,
-          burstLimit,
-          burstReset,
-          process.env.clientId,
-          fixedBatches,
-          errorArray
-        );
-        await Promise.all(additionalPNs);
-        const remediationCommand = additionalPNs.map(structurePNs);
-        const remediationResults = await pnCollection.bulkWrite(
-          remediationCommand
-        );
-        logExceptOnTest(
-          `API ${apiIndex} remediated ${additionalPNs.length} PNs \n${remediationResults.insertedCount} inserted & ${remediationResults.modifiedCount} modified`
-        );
-      } catch (error) {
-        console.error(error);
-      }
     }
-
-    resolve(pns.map(structurePNs));
+    logExceptOnTest(
+      `API ${apiIndex} has ${redos.length} indexes that need to be redone`
+    );
+    resolve(redos);
   });
 }
 

@@ -4,6 +4,12 @@ import { getAccessTokenForDigikeyAPI } from "../digiKeyAPI.js";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { retrieveResistorPNs } from "./partNumberRetrieval.js";
+import { remediatePNs } from "./partNumberRemediation.js";
+import { structurePNs } from "./partNumberStructuring.js";
+import {
+  findAndHandlePAIDuplicates,
+  findDuplicatePartNumbers,
+} from "./mongoCleaningFunctions.js";
 
 config();
 
@@ -225,8 +231,9 @@ async function syncCompetitors(offset) {
 
       // create agent with connections set to the max amount of connections
 
+      // resolves with the redos required
       pns.push(
-        retrieveResistorPNs(
+        ...retrieveResistorPNs(
           cred.accessToken,
           apiBody,
           60000,
@@ -253,46 +260,35 @@ async function syncCompetitors(offset) {
   logExceptOnTest("all requests sent. awaiting resolution...");
   await Promise.all(pns);
 
+  logExceptOnTest(`All APIs require ${pns.length} to be redone`);
+  const redoneParts = await remediatePNs(
+    pns,
+    body,
+    accessToken,
+    120,
+    60000,
+    process.env.clientId,
+    null,
+    errorArray
+  );
+
+  const redoBulkCommand = redoneParts.map(structurePNs);
+  logExceptOnTest(`pushing redone parts into mongo...`);
+  const mongoResults = await dkChipResistor.bulkWrite(redoBulkCommand);
+  logExceptOnTest(
+    `${mongoResults.insertedCount} inserted & ${mongoResults.modifiedCount} modified`
+  );
+
   // TODO: move this to the pn stage so we aren''t sendinf redundant info
   logExceptOnTest(`Cleaning up...`);
   const duplicates = await findDuplicatePartNumbers(true, dkChipResistor);
+  const paiDuplicates = await findAndHandlePAIDuplicates(true, dkChipResistor);
   logExceptOnTest(
     `${duplicates.length} part number duplicates found and removed`
   );
 
   logExceptOnTest("closing client...");
   await client.close();
-}
-
-async function findDuplicatePartNumbers(isDeleteDuplicates, collection) {
-  let client;
-  if (!collection) {
-    const client = new MongoClient(
-      process.env.competitor_database_connection_string
-    );
-    await client.connect();
-    const db = client.db("CompetitorDBInstance");
-    collection = db.collection("dk_chip_resistor");
-  }
-
-  const duplicates = await collection
-    .aggregate([
-      { $group: { _id: "$part_number", count: { $sum: 1 } } },
-      { $match: { count: { $gt: 1 } } },
-      { $project: { _id: 0, part_number: "$_id", count: 1 } },
-    ])
-    .toArray();
-
-  if (isDeleteDuplicates) {
-    const duplicatePartNumbers = duplicates.map((doc) => doc.part_number);
-    await collection.deleteMany({
-      part_number: { $in: duplicatePartNumbers },
-    });
-  }
-
-  await client?.close();
-
-  return duplicates;
 }
 
 export async function handleCompetitorRefresh(offset) {

@@ -184,28 +184,36 @@ async function bulkRemediation(
         })
     )
   );
-  // get new redo array
+  // remove duplactes from array
+  let redosNoDupes = [...new Set(redos)];
 
-  return [redos, pns];
+  return [redosNoDupes, pns];
 }
 
 // do fetch until you get response.ok
 async function fetchWithRetries(url, options, retries = 3, errorArray) {
-  while (retries > 0) {
-    let response = await fetch(url, options);
-    if (response.ok) {
-      return response.json();
-    } else {
-      // console.log(
-      //   `There was an error fetching with retries: ${response.status}\n${response.statusText}`
-      // );
-      errorArray.push({
-        type: "http response fail",
-        code: response.status,
-        message: response.statusText,
-      });
+  try {
+    while (retries > 0) {
+      let response = await fetch(url, options);
+      if (response.ok) {
+        return response.json();
+      } else {
+        // console.log(
+        //   `There was an error fetching with retries: ${response.status}\n${response.statusText}`
+        // );
+        errorArray.push({
+          type: "http response fail",
+          code: response.status,
+          message: response.statusText,
+        });
+      }
+      retries--;
+      logExceptOnTest(
+        `The following status was returned by a retry with redos fetch: ${res.status} ${res.statusText}`
+      );
     }
-    retries--;
+  } catch (error) {
+    logExceptOnTest(`there was an error fetching with retries" ${error}`);
   }
   throw new Error(`there was an error fetching after three retries`);
 }

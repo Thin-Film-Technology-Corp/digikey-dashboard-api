@@ -272,20 +272,31 @@ async function syncCompetitors(offset) {
     errorArray
   );
 
-  const redoBulkCommand = redoneParts.map(structurePNs);
-  logExceptOnTest(`pushing redone parts into mongo...`);
-  const mongoResults = await dkChipResistor.bulkWrite(redoBulkCommand);
-  logExceptOnTest(
-    `${mongoResults.insertedCount} inserted & ${mongoResults.modifiedCount} modified`
-  );
+  try {
+    const redoBulkCommand = redoneParts.map(structurePNs);
+    logExceptOnTest(`pushing redone parts into mongo...`);
+    const mongoResults = await dkChipResistor.bulkWrite(redoBulkCommand);
+    logExceptOnTest(
+      `${mongoResults.insertedCount} inserted & ${mongoResults.modifiedCount} modified`
+    );
+  } catch (error) {
+    console.log(`There was an error redoing parts: ${error}`);
+  }
 
   // TODO: move this to the pn stage so we aren''t sendinf redundant info
   logExceptOnTest(`Cleaning up...`);
-  const duplicates = await findDuplicatePartNumbers(true, dkChipResistor);
-  const paiDuplicates = await findAndHandlePAIDuplicates(true, dkChipResistor);
-  logExceptOnTest(
-    `${duplicates.length} part number duplicates found and removed`
-  );
+  try {
+    const duplicates = await findDuplicatePartNumbers(true, dkChipResistor);
+    const paiDuplicates = await findAndHandlePAIDuplicates(
+      true,
+      dkChipResistor
+    );
+    logExceptOnTest(
+      `${duplicates.length} part number duplicates found and removed\n ${paiDuplicates.length} part and inventory data duplicates removed`
+    );
+  } catch (error) {
+    console.log(`there was an error cleaning up the database: ${error}`);
+  }
 
   logExceptOnTest("closing client...");
   await client.close();

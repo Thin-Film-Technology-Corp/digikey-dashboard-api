@@ -101,7 +101,7 @@ export async function findAndHandlePAIDuplicates(
       await removePAIDuplicates(collection, pricingDuplicates, "pricing");
     }
 
-    return { inventoryDuplicates, pricingDuplicates };
+    return [...inventoryDuplicates, ...pricingDuplicates];
   } catch (error) {
     console.error("Error in findAndHandleDuplicates:", error);
     throw error; // Allow caller to handle the error

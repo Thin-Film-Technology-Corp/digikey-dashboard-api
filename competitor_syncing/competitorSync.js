@@ -233,7 +233,7 @@ async function syncCompetitors(offset) {
 
       // resolves with the redos required
       pns.push(
-        ...retrieveResistorPNs(
+        retrieveResistorPNs(
           cred.accessToken,
           apiBody,
           60000,
@@ -250,7 +250,7 @@ async function syncCompetitors(offset) {
       // Explicitly modify the body offset so the indexes are correctly ordered
       body.Offset += totalPartsHandled;
     } catch (error) {
-      console.error(`Error retrieving resistor PNs ${error}`);
+      console.error(`Error retrieving resistor PNs ${error} \n ${error.stack}`);
       logExceptOnTest("writing error log to ./temp/retrieval_errors.json");
       writeFileSync("./temp/retrieval_errors.json", JSON.stringify(errorArray));
       return null;
@@ -264,7 +264,7 @@ async function syncCompetitors(offset) {
   const redoneParts = await remediatePNs(
     pns,
     body,
-    accessToken,
+    await accessToken,
     120,
     60000,
     process.env.clientId,
